@@ -1,10 +1,11 @@
-"""Validation tests for the Neo4j Docker Compose configuration."""
+"""Validation and connectivity tests for the Neo4j Docker Compose configuration."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import yaml
+from neo4j import GraphDatabase
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -59,3 +60,24 @@ def test_compose_configures_auth_plugins_and_persistent_volumes() -> None:
         "neo4j_plugins",
         "neo4j_import",
     }
+
+
+def test_neo4j_container_accepts_bolt_connections() -> None:
+    """Verify the compose-managed Neo4j container accepts authenticated queries."""
+    driver = GraphDatabase.driver(
+        "bolt://localhost:7687",
+        auth=("neo4j", "your_password"),
+    )
+
+    try:
+        verified = driver.verify_connectivity()
+        assert verified is None
+
+        with driver.session() as session:
+            result = session.run("RETURN 1 AS value")
+            record = result.single()
+
+        assert record is not None
+        assert record["value"] == 1
+    finally:
+        driver.close()
