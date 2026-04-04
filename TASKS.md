@@ -18,11 +18,11 @@ Agents must **not skip tasks or implement multiple tasks at once**.
 
 ### Infrastructure
 
-```
-[ ] Add infra/docker-compose.yml for Neo4j
-[ ] Add infra/download_visdrone.sh dataset script
-[ ] Add infra/setup_env.sh environment setup script
-```
+
+- [x] Add infra/docker-compose.yml for Neo4j
+- [ ] Add infra/download_visdrone.sh dataset script
+- [ ] Add infra/setup_env.sh environment setup script
+
 
 ---
 
@@ -36,12 +36,11 @@ pipeline/sequence_loader.py
 
 Tasks:
 
-```
-[ ] Implement VisDrone dataset loader
-[ ] Implement sequence metadata parser
-[ ] Implement frame iterator interface
-[ ] Write tests for sequence_loader
-```
+
+- [ ] Implement VisDrone dataset loader
+- [ ] Implement sequence metadata parser
+- [ ] Implement frame iterator interface
+- [ ] Write tests for sequence_lo- ader
 
 ---
 
@@ -55,13 +54,11 @@ agents/detection_agent.py
 
 Tasks:
 
-```
-[ ] Implement YOLOv8 model loader
-[ ] Implement frame inference function
-[ ] Implement detection output formatting
-[ ] Load detection configuration from configs/detection.yaml
-[ ] Write tests for detection_agent
-```
+- [ ] Implement YOLOv8 model loader
+- [ ] Implement frame inference function
+- [ ] Implement detection output formatting
+- [ ] Load detection configuration from configs/detection.yaml
+- [ ] Write tests for detection_agent
 
 ---
 
@@ -75,13 +72,11 @@ agents/tracking_agent.py
 
 Tasks:
 
-```
-[ ] Integrate ByteTrack tracker
-[ ] Implement detection-to-track conversion
-[ ] Implement track_id persistence
-[ ] Implement lost track handling
-[ ] Write tests for tracking_agent
-```
+- [ ] Integrate ByteTrack tracker
+- [ ] Implement detection-to-track conversion
+- [ ] Implement track_id persistence
+- [ ] Implement lost track handling
+- [ ] Write tests for tracking_agent
 
 ---
 
@@ -95,16 +90,14 @@ agents/motion_agent.py
 
 Tasks:
 
-```
-[ ] Implement bounding box normalization
-[ ] Implement centroid computation
-[ ] Implement trajectory buffer
-[ ] Implement speed calculation
-[ ] Implement heading calculation
-[ ] Implement movement pattern classification
-[ ] Implement zone assignment
-[ ] Write tests for motion_agent
-```
+- [ ] Implement bounding box normalization
+- [ ] Implement centroid computation
+- [ ] Implement trajectory buffer
+- [ ] Implement speed calculation
+- [ ] Implement heading calculation
+- [ ] Implement movement pattern classification
+- [ ] Implement zone assignment
+- [ ] Write tests for motion_agent
 
 ---
 
@@ -120,12 +113,10 @@ graph/neo4j_client.py
 
 Tasks:
 
-```
-[ ] Implement Neo4j connection wrapper
-[ ] Implement query execution method
-[ ] Implement batch transaction support
-[ ] Write tests for neo4j_client
-```
+- [ ] Implement Neo4j connection wrapper
+- [ ] Implement query execution method
+- [ ] Implement batch transaction support
+- [ ] Write tests for neo4j_client
 
 ---
 
@@ -139,11 +130,9 @@ graph/schema.py
 
 Tasks:
 
-```
-[ ] Implement index creation
-[ ] Implement ObjectClass taxonomy initialization
-[ ] Write tests for schema setup
-```
+- [ ] Implement index creation
+- [ ] Implement ObjectClass taxonomy initialization
+- [ ] Write tests for schema setup
 
 ---
 
@@ -157,14 +146,12 @@ agents/graph_agent.py
 
 Tasks:
 
-```
-[ ] Implement object node MERGE logic
-[ ] Implement frame node creation
-[ ] Implement zone node creation
-[ ] Implement relationship creation (IN_ZONE, APPEARED_IN)
-[ ] Implement batch write logic
-[ ] Write tests for graph_agent
-```
+- [ ] Implement object node MERGE logic
+- [ ] Implement frame node creation
+- [ ] Implement zone node creation
+- [ ] Implement relationship creation (IN_ZONE, APPEARED_IN)
+- [ ] Implement batch write logic
+- [ ] Write tests for graph_agent
 
 ---
 
@@ -178,15 +165,13 @@ agents/event_agent.py
 
 Tasks:
 
-```
-[ ] Implement NEAR_MISS detection
-[ ] Implement LOITER detection
-[ ] Implement CONVOY detection
-[ ] Implement CROWD_FORM detection
-[ ] Implement JAYWALKING detection
-[ ] Load thresholds from configs/event.yaml
-[ ] Write tests for event_agent
-```
+- [ ] Implement NEAR_MISS detection
+- [ ] Implement LOITER detection
+- [ ] Implement CONVOY detection
+- [ ] Implement CROWD_FORM detection
+- [ ] Implement JAYWALKING detection
+- [ ] Load thresholds from configs/event.yaml
+- [ ] Write tests for event_agent
 
 ---
 
@@ -200,16 +185,14 @@ pipeline/runner.py
 
 Tasks:
 
-```
-[ ] Implement frame processing loop
-[ ] Integrate detection agent
-[ ] Integrate tracking agent
-[ ] Integrate motion agent
-[ ] Integrate graph agent
-[ ] Integrate event agent
-[ ] Implement batch writer integration
-[ ] Write integration tests for pipeline runner
-```
+- [ ] Implement frame processing loop
+- [ ] Integrate detection agent
+- [ ] Integrate tracking agent
+- [ ] Integrate motion agent
+- [ ] Integrate graph agent
+- [ ] Integrate event agent
+- [ ] Implement batch writer integration
+- [ ] Write integration tests for pipeline runner
 
 ---
 
@@ -223,13 +206,11 @@ agents/entity_resolution_agent.py
 
 Tasks:
 
-```
-[ ] Implement track pair comparison
-[ ] Implement re-identification scoring
-[ ] Implement SAME_ENTITY_AS creation
-[ ] Implement COEXISTS_WITH relationship creation
-[ ] Write tests for entity_resolution_agent
-```
+- [ ] Implement track pair comparison
+- [ ] Implement re-identification scoring
+- [ ] Implement SAME_ENTITY_AS creation
+- [ ] Implement COEXISTS_WITH relationship creation
+- [ ] Write tests for entity_resolution_agent
 
 ---
 
@@ -243,14 +224,12 @@ agents/llm_agent.py
 
 Tasks:
 
-```
-[ ] Implement natural language query interface
-[ ] Implement Cypher generation prompt
-[ ] Implement Cypher validation
-[ ] Implement Neo4j query execution
-[ ] Implement answer interpretation pass
-[ ] Write tests for llm_agent
-```
+- [ ] Implement natural language query interface
+- [ ] Implement Cypher generation prompt
+- [ ] Implement Cypher validation
+- [ ] Implement Neo4j query execution
+- [ ] Implement answer interpretation pass
+- [ ] Write tests for llm_agent
 
 ---
 
@@ -267,12 +246,10 @@ eval/cypher_accuracy.py
 
 Tasks:
 
-```
-[ ] Implement detection evaluation script
-[ ] Implement tracking evaluation script
-[ ] Implement event precision evaluation
-[ ] Implement Cypher generation accuracy evaluation
-```
+- [ ] Implement detection evaluation script
+- [ ] Implement tracking evaluation script
+- [ ] Implement event precision evaluation
+- [ ] Implement Cypher generation accuracy evaluation
 
 ---
 
@@ -286,8 +263,6 @@ ui/app.py
 
 Tasks:
 
-```
-[ ] Implement Streamlit interface
-[ ] Add natural language query box
-[ ] Display graph query results
-```
+- [ ] Implement Streamlit interface
+- [ ] Add natural language query box
+- [ ] Display graph query results
