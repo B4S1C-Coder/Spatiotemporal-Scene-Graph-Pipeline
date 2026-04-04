@@ -20,7 +20,7 @@ Agents must **not skip tasks or implement multiple tasks at once**.
 
 
 - [x] Add infra/docker-compose.yml for Neo4j
-- [ ] Add infra/download_visdrone.sh dataset script
+- [x] Add infra/download_visdrone.sh dataset script
 - [ ] Add infra/setup_env.sh environment setup script
 
 
