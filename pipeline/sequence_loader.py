@@ -5,13 +5,13 @@ This module currently handles dataset-level concerns only:
 - locating a sequence on disk
 - validating the expected VisDrone MOT directory structure
 - enumerating available frame files
+- parsing sequence metadata from seqinfo.ini
 - reading approved sequence IDs from a JSON manifest
-
-Metadata parsing and frame iteration are implemented in later tasks.
 """
 
 from __future__ import annotations
 
+import configparser
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -48,6 +48,7 @@ class SequenceLoader:
         self.config = config
         self.data_root = self._resolve_data_root(config)
         self.paths = self._build_sequence_paths(sequence_id, self.data_root)
+        self.scene_payload = self._build_scene_payload()
 
     def get_sequence_paths(self) -> SequencePaths:
         """Return the resolved path bundle for the loaded sequence."""
@@ -58,8 +59,8 @@ class SequenceLoader:
         return [int(frame_path.stem) - 1 for frame_path in self.paths.frame_paths]
 
     def get_scene_payload(self) -> dict[str, Any]:
-        """Metadata parsing is implemented in the next task."""
-        raise NotImplementedError("Scene metadata parsing is implemented in a later task.")
+        """Return the parsed and inferred Scene payload for this sequence."""
+        return self.scene_payload
 
     def iter_frames(self, frame_skip: int = 1) -> Any:
         """Frame iteration is implemented in a later task."""
@@ -94,6 +95,106 @@ class SequenceLoader:
         if not data_root:
             raise ValueError("SequenceLoader config must include 'data_root'.")
         return Path(data_root)
+
+    def _build_scene_payload(self) -> dict[str, Any]:
+        seqinfo = self._parse_seqinfo_file(self.paths.seqinfo_file)
+        sequence_meta = self._load_sequence_meta_lookup(
+            self.config.get("sequence_meta_path"),
+            self.data_root,
+        ).get(self.sequence_id, {})
+
+        altitude_m, altitude_source = self._resolve_altitude(sequence_meta)
+
+        return {
+            "sequence_id": self.sequence_id,
+            "total_frames": seqinfo["seqLength"],
+            "frame_rate": seqinfo["frameRate"],
+            "frame_width": seqinfo["imWidth"],
+            "frame_height": seqinfo["imHeight"],
+            "altitude_m": altitude_m,
+            "altitude_source": altitude_source,
+            "weather": str(self.config.get("default_weather", "clear")),
+            "weather_source": str(self.config.get("weather_source", "default")),
+            "scene_type": str(self.config.get("default_scene_type", "urban")),
+            "time_of_day": str(self.config.get("default_time_of_day", "daytime")),
+            "split": self._infer_split(self.paths.sequence_root),
+            "frame_skip": int(self.config.get("frame_skip", 1)),
+            "annotation_available": self.paths.gt_file is not None,
+        }
+
+    @staticmethod
+    def _parse_seqinfo_file(seqinfo_file: Path) -> dict[str, int]:
+        parser = configparser.ConfigParser()
+        parser.read(seqinfo_file, encoding="utf-8")
+
+        if "Sequence" not in parser:
+            raise ValueError(f"Missing [Sequence] section in {seqinfo_file}")
+
+        sequence_section = parser["Sequence"]
+        required_fields = ("seqLength", "frameRate", "imWidth", "imHeight")
+        missing_fields = [field_name for field_name in required_fields if field_name not in sequence_section]
+        if missing_fields:
+            raise ValueError(f"Missing required seqinfo fields in {seqinfo_file}: {', '.join(missing_fields)}")
+
+        return {
+            "seqLength": sequence_section.getint("seqLength"),
+            "frameRate": sequence_section.getint("frameRate"),
+            "imWidth": sequence_section.getint("imWidth"),
+            "imHeight": sequence_section.getint("imHeight"),
+        }
+
+    @classmethod
+    def _load_sequence_meta_lookup(
+        cls,
+        configured_meta_path: str | None,
+        data_root: Path,
+    ) -> dict[str, dict[str, Any]]:
+        meta_path = cls._resolve_sequence_meta_path(configured_meta_path, data_root)
+        if meta_path is None or not meta_path.is_file():
+            return {}
+
+        meta_data = json.loads(meta_path.read_text(encoding="utf-8"))
+        if not isinstance(meta_data, dict):
+            raise ValueError("Sequence metadata lookup must be a JSON object.")
+        return {
+            str(sequence_id): sequence_meta
+            for sequence_id, sequence_meta in meta_data.items()
+            if isinstance(sequence_meta, dict)
+        }
+
+    @staticmethod
+    def _resolve_sequence_meta_path(configured_meta_path: str | None, data_root: Path) -> Path | None:
+        if configured_meta_path:
+            return Path(configured_meta_path)
+
+        candidate_paths = [data_root / "visdrone_sequence_meta.json"]
+        candidate_paths.extend(parent_path / "visdrone_sequence_meta.json" for parent_path in data_root.parents)
+
+        for candidate_path in candidate_paths:
+            if candidate_path.is_file():
+                return candidate_path
+        return None
+
+    @staticmethod
+    def _resolve_altitude(sequence_meta: dict[str, Any]) -> tuple[float, str]:
+        altitude_value = sequence_meta.get("altitude_m")
+        if altitude_value is not None:
+            return float(altitude_value), "lookup"
+        return 50.0, "estimated"
+
+    @staticmethod
+    def _infer_split(sequence_root: Path) -> str:
+        relevant_parts = [part_name.lower() for part_name in sequence_root.parts[-4:]]
+        for part_name in relevant_parts:
+            if part_name in {"train", "val", "test"}:
+                return part_name
+            if "mot-train" in part_name or "det-train" in part_name:
+                return "train"
+            if "mot-val" in part_name or "det-val" in part_name:
+                return "val"
+            if "mot-test" in part_name or "det-test" in part_name:
+                return "test"
+        return "unknown"
 
     @classmethod
     def _build_sequence_paths(cls, sequence_id: str, data_root: Path) -> SequencePaths:

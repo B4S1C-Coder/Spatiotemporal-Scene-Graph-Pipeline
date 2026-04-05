@@ -114,3 +114,66 @@ def test_list_available_rejects_invalid_manifest_shape(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="sequence_ids"):
         SequenceLoader.list_available(str(manifest_path))
+
+
+def test_scene_payload_parses_seqinfo_and_infers_defaults(tmp_path: Path) -> None:
+    """Scene payload should parse core seqinfo fields and default inferred metadata."""
+    sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
+    create_sequence(sequences_root, "uav0000009_04358_v")
+
+    loader = SequenceLoader(
+        sequence_id="uav0000009_04358_v",
+        config={"data_root": str(sequences_root), "frame_skip": 3},
+    )
+
+    scene_payload = loader.get_scene_payload()
+
+    assert scene_payload["sequence_id"] == "uav0000009_04358_v"
+    assert scene_payload["total_frames"] == 2
+    assert scene_payload["frame_rate"] == 30
+    assert scene_payload["frame_width"] == 640
+    assert scene_payload["frame_height"] == 480
+    assert scene_payload["altitude_m"] == 50.0
+    assert scene_payload["altitude_source"] == "estimated"
+    assert scene_payload["weather"] == "clear"
+    assert scene_payload["weather_source"] == "default"
+    assert scene_payload["scene_type"] == "urban"
+    assert scene_payload["time_of_day"] == "daytime"
+    assert scene_payload["split"] == "val"
+    assert scene_payload["frame_skip"] == 3
+    assert scene_payload["annotation_available"] is True
+
+
+def test_scene_payload_uses_lookup_metadata_when_available(tmp_path: Path) -> None:
+    """Supplemental sequence metadata should populate altitude from the lookup file."""
+    visdrone_root = tmp_path / "data" / "visdrone"
+    create_sequence(visdrone_root / "VisDrone2019-MOT-train" / "sequences", "uav0000013_00000_v")
+    meta_path = tmp_path / "data" / "visdrone_sequence_meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(
+        json.dumps({"uav0000013_00000_v": {"altitude_m": 60, "altitude_range": [55, 65]}}),
+        encoding="utf-8",
+    )
+
+    loader = SequenceLoader(
+        sequence_id="uav0000013_00000_v",
+        config={"data_root": str(visdrone_root)},
+    )
+
+    scene_payload = loader.get_scene_payload()
+    assert scene_payload["altitude_m"] == 60.0
+    assert scene_payload["altitude_source"] == "lookup"
+    assert scene_payload["split"] == "train"
+
+
+def test_scene_payload_rejects_invalid_seqinfo(tmp_path: Path) -> None:
+    """Missing required seqinfo fields should raise a clear metadata parsing error."""
+    sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
+    sequence_root = create_sequence(sequences_root, "uav0000149_00000_v")
+    (sequence_root / "seqinfo.ini").write_text("[Sequence]\nname=test\nframeRate=30\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="seqLength"):
+        SequenceLoader(
+            sequence_id="uav0000149_00000_v",
+            config={"data_root": str(sequences_root)},
+        )
