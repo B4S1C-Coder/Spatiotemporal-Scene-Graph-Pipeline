@@ -7,7 +7,7 @@ import textwrap
 
 import pytest
 
-from agents.detection_agent import DetectionAgent, load_yolo_model
+from agents.detection_agent import DetectionAgent, load_detection_config, load_yolo_model
 
 
 class FakeYOLO:
@@ -67,6 +67,19 @@ def test_load_yolo_model_uses_requested_weights_path(tmp_path: Path) -> None:
 
     assert isinstance(model, FakeYOLO)
     assert model.model_path == str(weight_path)
+
+
+def test_load_detection_config_reads_detection_yaml(tmp_path: Path) -> None:
+    """Detection settings should be loaded from the YAML config file."""
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path, "weights/custom.pt", "weights/fallback.pt")
+
+    detection_config = load_detection_config(config_path=config_path)
+
+    assert detection_config["model"]["preferred_path"] == "weights/custom.pt"
+    assert detection_config["model"]["fallback_path"] == "weights/fallback.pt"
+    assert detection_config["inference"]["confidence_threshold"] == 0.35
+    assert detection_config["vision"]["img_size"] == 1280
 
 
 def test_detection_agent_loads_model_during_initialization(tmp_path: Path) -> None:
@@ -208,6 +221,20 @@ class FakeResult:
         self.names = {0: "pedestrian", 3: "car"}
 
 
+class FakeResultWithoutNames:
+    """Result object that relies on model-level class names."""
+
+    def __init__(self) -> None:
+        self.boxes = FakeBoxes()
+
+
+class FakeResultWithoutBoxes:
+    """Result object without box detections."""
+
+    def __init__(self) -> None:
+        self.boxes = None
+
+
 def test_detection_agent_formats_raw_results_into_detection_contract(tmp_path: Path) -> None:
     """Raw YOLO results should be converted into the expected detection dictionaries."""
     weight_path = tmp_path / "weights.pt"
@@ -250,3 +277,36 @@ def test_detection_agent_formats_empty_results_as_empty_list(tmp_path: Path) -> 
     agent = DetectionAgent(model_path=str(weight_path), config_path=config_path, yolo_factory=FakeYOLO)
 
     assert agent.format_detections(raw_results=[], frame_packet={"frame_id": 0}) == []
+
+
+def test_detection_agent_uses_model_class_names_when_result_names_are_missing(tmp_path: Path) -> None:
+    """Formatting should fall back to model.names when result.names is absent."""
+    weight_path = tmp_path / "weights.pt"
+    weight_path.write_text("stub", encoding="utf-8")
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path, str(weight_path), str(weight_path))
+    agent = DetectionAgent(model_path=str(weight_path), config_path=config_path, yolo_factory=FakeYOLO)
+
+    detections = agent.format_detections(
+        raw_results=[FakeResultWithoutNames()],
+        frame_packet={"frame_id": 3},
+    )
+
+    assert detections[0]["class_name"] == "pedestrian"
+    assert detections[1]["class_name"] == "car"
+
+
+def test_detection_agent_returns_empty_list_when_boxes_are_missing(tmp_path: Path) -> None:
+    """Formatting should degrade to an empty list when YOLO returns no boxes container."""
+    weight_path = tmp_path / "weights.pt"
+    weight_path.write_text("stub", encoding="utf-8")
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path, str(weight_path), str(weight_path))
+    agent = DetectionAgent(model_path=str(weight_path), config_path=config_path, yolo_factory=FakeYOLO)
+
+    detections = agent.format_detections(
+        raw_results=[FakeResultWithoutBoxes()],
+        frame_packet={"frame_id": 7},
+    )
+
+    assert detections == []

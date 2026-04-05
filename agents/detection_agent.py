@@ -15,6 +15,23 @@ import numpy as np
 from ultralytics import YOLO
 
 
+def load_detection_config(
+    config_path: str | Path = DETECTION_CONFIG_PATH,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Load detection-agent settings from configs/detection.yaml.
+
+    Args:
+        config_path: YAML config file location.
+        config: Optional runtime override mapping.
+
+    Returns:
+        Detection configuration dictionary.
+    """
+    return load_yaml_config(config_path, overrides=config)
+
+
 def load_yolo_model(
     model_path: str | None = None,
     fallback_model_path: str | None = None,
@@ -39,7 +56,7 @@ def load_yolo_model(
         FileNotFoundError: If neither the configured path nor the supported
             fallback path exists on disk.
     """
-    detection_config = load_yaml_config(config_path, overrides=config)
+    detection_config = load_detection_config(config_path, config=config)
     model_config = detection_config.get("model", {})
     preferred_model_path = model_path or model_config["preferred_path"]
     fallback_path = fallback_model_path or model_config["fallback_path"]
@@ -71,7 +88,7 @@ class DetectionAgent:
             yolo_factory: Injectable YOLO constructor for testing.
         """
         self.config_path = Path(config_path)
-        self.config = load_yaml_config(self.config_path, overrides=config)
+        self.config = load_detection_config(self.config_path, config=config)
         inference_config = self.config["inference"]
         model_config = self.config["model"]
 
