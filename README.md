@@ -21,7 +21,7 @@ flowchart LR
 ```
 
 Raw feed example (from VisDrone Dataset):
-![Raw Feed](./data/visdrone/VisDrone2019-MOT-val/sequences/uav0000086_00000_v/0000002.jpg)
+![Raw Feed](./docs/0000002.jpg)
 
 Graph for above enviornment in Neo4j can look something like this:
 ![Visualize](./docs/visualisation.png)
