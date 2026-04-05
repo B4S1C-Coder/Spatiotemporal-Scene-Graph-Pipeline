@@ -236,3 +236,34 @@ def test_iter_frames_rejects_non_positive_frame_skip(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="frame_skip"):
         list(loader.iter_frames(frame_skip=0))
+
+
+def test_get_annotation_is_not_implemented_yet(tmp_path: Path) -> None:
+    """Annotation parsing is deferred and should fail explicitly for now."""
+    sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
+    create_sequence(sequences_root, "uav0000009_04358_v")
+    loader = SequenceLoader(
+        sequence_id="uav0000009_04358_v",
+        config={"data_root": str(sequences_root)},
+    )
+
+    with pytest.raises(NotImplementedError, match="Annotation parsing"):
+        loader.get_annotation(0)
+
+
+def test_iter_frames_raises_on_unreadable_frame(tmp_path: Path) -> None:
+    """Unreadable frame files should raise a clear error during iteration."""
+    sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
+    sequence_root = create_sequence(sequences_root, "uav0000009_04358_v")
+    unreadable_frame = sequence_root / "img1" / "0000002.jpg"
+    unreadable_frame.write_text("not-an-image", encoding="utf-8")
+
+    loader = SequenceLoader(
+        sequence_id="uav0000009_04358_v",
+        config={"data_root": str(sequences_root)},
+    )
+
+    frame_iterator = loader.iter_frames()
+    next(frame_iterator)
+    with pytest.raises(ValueError, match="Could not load frame image"):
+        next(frame_iterator)

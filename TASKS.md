@@ -41,7 +41,7 @@ Tasks:
 - [x] Implement VisDrone dataset loader
 - [x] Implement sequence metadata parser
 - [x] Implement frame iterator interface
-- [ ] Write tests for sequence_loader
+- [x] Write tests for sequence_loader
 
 ---
 
