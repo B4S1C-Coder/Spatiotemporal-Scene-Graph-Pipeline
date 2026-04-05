@@ -8,6 +8,7 @@ query results.
 
 from __future__ import annotations
 
+from argparse import ArgumentParser
 import json
 import os
 from pathlib import Path
@@ -232,3 +233,43 @@ def _resolve_llm_api_key(config: dict[str, Any]) -> str:
     if _resolve_llm_base_url(config) is not None:
         return "llama.cpp"
     return ""
+
+
+def run_query_cli(
+    natural_language_query: str,
+    *,
+    sequence_id: str | None = None,
+    query_agent: LLMQueryAgent | None = None,
+) -> dict[str, Any]:
+    """
+    Execute one natural-language graph query for the CLI surface.
+    """
+    active_query_agent = query_agent or LLMQueryAgent(neo4j_client=Neo4jClient())
+    try:
+        return active_query_agent.query(natural_language_query, sequence_id=sequence_id)
+    finally:
+        if query_agent is None:
+            active_query_agent.neo4j_client.close()
+
+
+def main() -> None:
+    """CLI entry point for natural-language graph queries."""
+    parser = ArgumentParser(description="Query the scene graph with natural language.")
+    parser.add_argument("--question", required=True, help="Natural-language query to run.")
+    parser.add_argument("--sequence", default=None, help="Optional sequence scope.")
+    parser.add_argument("--json", action="store_true", help="Print the full query result as JSON.")
+    args = parser.parse_args()
+
+    result = run_query_cli(args.question, sequence_id=args.sequence)
+    if args.json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+
+    print(result["answer"])
+    if result.get("cypher"):
+        print("\nCypher:")
+        print(result["cypher"])
+
+
+if __name__ == "__main__":
+    main()

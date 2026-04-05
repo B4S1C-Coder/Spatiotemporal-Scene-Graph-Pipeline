@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import textwrap
 
-from agents.llm_agent import LLMQueryAgent, OpenAILLMClient, load_llm_config
+from agents.llm_agent import LLMQueryAgent, OpenAILLMClient, load_llm_config, run_query_cli
 
 
 class FakeLLMClient:
@@ -289,3 +289,25 @@ def test_interpret_results_uses_llm_for_non_empty_results(tmp_path: Path) -> Non
     assert answer == "There was one near miss at frame 12."
     assert llm_client.calls[0]["system_prompt"] == "Interpret the graph results only."
     assert '"frame_id": 12' in llm_client.calls[0]["user_prompt"]
+
+
+def test_run_query_cli_uses_supplied_query_agent() -> None:
+    """The CLI helper should route through an injected query agent."""
+    query_agent = type(
+        "FakeCLIQueryAgent",
+        (),
+        {
+            "query": lambda self, natural_language_query, sequence_id=None: {
+                "question": natural_language_query,
+                "cypher": "MATCH (n) RETURN n",
+                "results": [{"value": 1}],
+                "answer": f"Question for {sequence_id}",
+                "error": None,
+            }
+        },
+    )()
+
+    result = run_query_cli("Show all objects", sequence_id="seq_a", query_agent=query_agent)
+
+    assert result["answer"] == "Question for seq_a"
+    assert result["cypher"] == "MATCH (n) RETURN n"

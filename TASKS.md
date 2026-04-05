@@ -288,9 +288,9 @@ docs/usage.md
 
 Tasks:
 
-- [ ] Wire entity resolution into end-of-sequence post-processing
-- [ ] Add a production CLI for pipeline execution
-- [ ] Add a production CLI for natural-language graph querying
-- [ ] Add richer graph result visualization in the UI
-- [ ] Add an end-to-end ingestion example for writing a real sequence into Neo4j
-- [ ] Expand README quickstart to cover setup, ingestion, querying, and UI usage
+- [x] Wire entity resolution into end-of-sequence post-processing
+- [x] Add a production CLI for pipeline execution
+- [x] Add a production CLI for natural-language graph querying
+- [x] Add richer graph result visualization in the UI
+- [x] Add an end-to-end ingestion example for writing a real sequence into Neo4j
+- [x] Expand README quickstart to cover setup, ingestion, querying, and UI usage

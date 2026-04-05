@@ -7,7 +7,7 @@ import textwrap
 from typing import Any
 
 from pipeline.batch_writer import BatchWriter
-from pipeline.runner import PipelineRunner
+from pipeline.runner import PipelineRunner, run_pipeline_cli
 
 
 class FakeSequenceLoader:
@@ -200,6 +200,22 @@ class FakeBatchWriter:
         self.flush_count += 1
 
 
+class FakePostProcessor:
+    """Post-processor stand-in for runner post-processing tests."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def run_sequence(self, sequence_id: str) -> dict[str, Any]:
+        self.calls.append(sequence_id)
+        return {
+            "sequence_id": sequence_id,
+            "object_count": 1,
+            "statement_count": 2,
+            "post_processed": True,
+        }
+
+
 class FakeGraphAgent:
     """Graph agent stand-in for testing the BatchWriter adapter."""
 
@@ -251,7 +267,11 @@ def reset_fake_loader() -> None:
     FakeSequenceLoader.iter_calls = []
 
 
-def build_runner(config_path: Path, batch_writer: FakeBatchWriter | None = None) -> tuple[PipelineRunner, dict[str, Any]]:
+def build_runner(
+    config_path: Path,
+    batch_writer: FakeBatchWriter | None = None,
+    post_processor: FakePostProcessor | None = None,
+) -> tuple[PipelineRunner, dict[str, Any]]:
     """Build a runner with fake agent dependencies for integration tests."""
     dependencies = {
         "detection_agent": FakeDetectionAgent(),
@@ -259,6 +279,7 @@ def build_runner(config_path: Path, batch_writer: FakeBatchWriter | None = None)
         "motion_agent": FakeMotionAgent(),
         "event_agent": FakeEventAgent(),
         "batch_writer": batch_writer or FakeBatchWriter(),
+        "post_processor": post_processor or FakePostProcessor(),
     }
     runner = PipelineRunner(
         config_path=config_path,
@@ -268,6 +289,7 @@ def build_runner(config_path: Path, batch_writer: FakeBatchWriter | None = None)
         motion_agent=dependencies["motion_agent"],
         event_agent=dependencies["event_agent"],
         batch_writer=dependencies["batch_writer"],
+        post_processor=dependencies["post_processor"],
     )
     return runner, dependencies
 
@@ -391,3 +413,45 @@ def test_pipeline_runner_processes_multiple_sequences_and_flushes_each_one(tmp_p
         {"sequence_id": "seq_b", "frame_skip": 2},
     ]
     assert batch_writer.flush_count == 2
+
+
+def test_pipeline_runner_runs_post_processor_when_enabled(tmp_path: Path) -> None:
+    """Sequence-final post-processing should run only when explicitly enabled."""
+    reset_fake_loader()
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path)
+    post_processor = FakePostProcessor()
+    runner, dependencies = build_runner(config_path, post_processor=post_processor)
+
+    runner.run_sequence("seq_post", post_process=True)
+
+    assert dependencies["batch_writer"].flush_count == 1
+    assert post_processor.calls == ["seq_post"]
+    assert runner.last_postprocess_summary == {
+        "sequence_id": "seq_post",
+        "object_count": 1,
+        "statement_count": 2,
+        "post_processed": True,
+    }
+
+
+def test_run_pipeline_cli_returns_compact_summary(tmp_path: Path) -> None:
+    """The runner CLI helper should return frame counts and post-processing state."""
+    reset_fake_loader()
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path)
+    runner, _ = build_runner(config_path)
+
+    summary = run_pipeline_cli(
+        ["seq_a", "seq_b"],
+        frame_skip=2,
+        post_process=False,
+        runner=runner,
+    )
+
+    assert summary == {
+        "sequence_ids": ["seq_a", "seq_b"],
+        "frame_counts": {"seq_a": 2, "seq_b": 2},
+        "post_process_enabled": False,
+        "last_postprocess_summary": None,
+    }

@@ -112,6 +112,41 @@ llm:
 If `api_key` is omitted, the agent falls back to the configured env var. For a
 local OpenAI-compatible server, a placeholder key is acceptable.
 
+## Ingest a sequence into Neo4j
+
+Pipeline CLI:
+
+```bash
+venv/bin/python pipeline/runner.py --sequence uav0000009_04358_v --post-process --json
+```
+
+You can also pass a manifest of sequence IDs:
+
+```bash
+venv/bin/python pipeline/runner.py --manifest path/to/sequences.json --post-process --json
+```
+
+The runner now supports sequence-final entity-resolution post-processing through
+`--post-process`.
+
+There is also a standalone example script:
+
+```bash
+venv/bin/python examples/ingest_sequence_to_neo4j.py --sequence uav0000009_04358_v --post-process
+```
+
+## Query the graph from the CLI
+
+```bash
+venv/bin/python agents/llm_agent.py --sequence uav0000009_04358_v --question "Which vehicles were stationary for more than 60 frames?"
+```
+
+To inspect the full result payload:
+
+```bash
+venv/bin/python agents/llm_agent.py --sequence uav0000009_04358_v --question "Show me all near misses" --json
+```
+
 ## Start the UI
 
 Install dependencies first so `streamlit` is available, then run:
@@ -125,7 +160,9 @@ The UI currently provides:
 - a sequence ID input
 - a natural-language query box
 - generated Cypher display
-- raw Neo4j result row display
+- result table display
+- quick chart visualization when result rows contain chartable fields
+- raw Neo4j result row JSON display
 - final answer display from the LLM agent
 
 Before using it:
@@ -198,8 +235,6 @@ Expected input payloads are documented in
 
 Remaining practical work outside the completed checklist:
 
-- wire entity resolution into an end-of-sequence post-processing command
-- add a production-ready CLI for pipeline execution and querying
-- add richer graph result visualization in the UI
-- add end-to-end ingestion examples that write a real sequence into Neo4j
-- add README-level quickstart coverage if you want a single landing page instead of phase docs
+- add a true graph-structure visualization layer in the UI, not just table and chart summaries
+- add a polished demo dataset or canned ingestion artifact for zero-setup querying
+- add a more fully automated benchmark pipeline against the real VisDrone validation split

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ui.app import run_query, summarize_query_result
+from ui.app import build_result_chart_spec, build_result_table_payload, run_query, summarize_query_result
 
 
 class FakeQueryAgent:
@@ -81,4 +81,30 @@ def test_summarize_query_result_returns_ui_summary() -> None:
         "result_count": 2,
         "has_error": False,
         "error": None,
+    }
+
+
+def test_build_result_table_payload_normalizes_keys() -> None:
+    """UI table payloads should preserve rows with string keys."""
+    table_rows = build_result_table_payload([{1: "car", "count": 3}])
+
+    assert table_rows == [{"1": "car", "count": 3}]
+
+
+def test_build_result_chart_spec_extracts_simple_bar_chart_data() -> None:
+    """Chart specs should be built when rows contain one label and one numeric column."""
+    chart_spec = build_result_chart_spec(
+        [
+            {"class_name": "car", "count": 4},
+            {"class_name": "bus", "count": 2},
+        ]
+    )
+
+    assert chart_spec == {
+        "label_column": "class_name",
+        "value_column": "count",
+        "rows": [
+            {"label": "car", "value": 4.0},
+            {"label": "bus", "value": 2.0},
+        ],
     }

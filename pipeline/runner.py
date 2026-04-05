@@ -8,6 +8,8 @@ buffered graph writes.
 
 from __future__ import annotations
 
+from argparse import ArgumentParser
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -19,6 +21,7 @@ from agents.tracking_agent import TrackingAgent
 from configs.loader import DETECTION_CONFIG_PATH, GRAPH_CONFIG_PATH, load_yaml_config
 from graph.neo4j_client import Neo4jClient
 from pipeline.batch_writer import BatchWriter
+from pipeline.post_processor import PostProcessor
 from pipeline.sequence_loader import SequenceLoader
 
 
@@ -37,6 +40,7 @@ class PipelineRunner:
         graph_agent: GraphAgent | None = None,
         batch_writer: BatchWriter | None = None,
         neo4j_client: Neo4jClient | None = None,
+        post_processor: PostProcessor | None = None,
     ) -> None:
         """
         Initialize the pipeline runner.
@@ -52,6 +56,7 @@ class PipelineRunner:
             graph_agent: Optional prebuilt graph agent.
             batch_writer: Optional prebuilt batch writer.
             neo4j_client: Optional prebuilt Neo4j client for default graph-agent setup.
+            post_processor: Optional sequence-completion post-processor.
         """
         self.config_path = Path(config_path)
         self.config = load_yaml_config(self.config_path, overrides=config)
@@ -67,11 +72,14 @@ class PipelineRunner:
         self.neo4j_client = neo4j_client
         self.graph_agent = graph_agent or self._build_graph_agent()
         self.batch_writer = batch_writer or BatchWriter(self.graph_agent)
+        self.post_processor = post_processor or PostProcessor(self.neo4j_client)
+        self.last_postprocess_summary: dict[str, Any] | None = None
 
     def run_sequence(
         self,
         sequence_id: str,
         frame_skip: int | None = None,
+        post_process: bool = False,
     ) -> list[dict[str, Any]]:
         """
         Process all frames in one sequence.
@@ -79,6 +87,7 @@ class PipelineRunner:
         Args:
             sequence_id: Sequence identifier to process.
             frame_skip: Optional override for frame skipping.
+            post_process: Whether to run sequence-final post-processing.
 
         Returns:
             List of per-frame pipeline outputs.
@@ -90,12 +99,16 @@ class PipelineRunner:
                 processed_packets.append(self.process_frame(frame_packet))
         finally:
             self.batch_writer.flush()
+        self.last_postprocess_summary = None
+        if post_process:
+            self.last_postprocess_summary = self.post_processor.run_sequence(sequence_id)
         return processed_packets
 
     def run_sequences(
         self,
         sequence_ids: list[str],
         frame_skip: int | None = None,
+        post_process: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """
         Process multiple sequences in order.
@@ -103,12 +116,13 @@ class PipelineRunner:
         Args:
             sequence_ids: Sequence identifiers to process.
             frame_skip: Optional frame skip override for all sequences.
+            post_process: Whether to run sequence-final post-processing per sequence.
 
         Returns:
             Mapping from sequence ID to processed frame packets.
         """
         return {
-            sequence_id: self.run_sequence(sequence_id, frame_skip=frame_skip)
+            sequence_id: self.run_sequence(sequence_id, frame_skip=frame_skip, post_process=post_process)
             for sequence_id in sequence_ids
         }
 
@@ -159,3 +173,79 @@ class PipelineRunner:
         if self.neo4j_client is None:
             self.neo4j_client = Neo4jClient(config_path=config_path)
         return GraphAgent(neo4j_client=self.neo4j_client, config_path=config_path)
+
+    def close(self) -> None:
+        """Close shared resources owned by the runner."""
+        if self.neo4j_client is not None:
+            self.neo4j_client.close()
+
+
+def run_pipeline_cli(
+    sequence_ids: list[str],
+    *,
+    frame_skip: int | None = None,
+    post_process: bool = False,
+    runner: PipelineRunner | None = None,
+) -> dict[str, Any]:
+    """
+    Execute one or more sequences and return a compact CLI summary.
+    """
+    active_runner = runner or PipelineRunner()
+    try:
+        results = active_runner.run_sequences(
+            sequence_ids,
+            frame_skip=frame_skip,
+            post_process=post_process,
+        )
+        return {
+            "sequence_ids": sequence_ids,
+            "frame_counts": {
+                sequence_id: len(sequence_results)
+                for sequence_id, sequence_results in results.items()
+            },
+            "post_process_enabled": post_process,
+            "last_postprocess_summary": active_runner.last_postprocess_summary,
+        }
+    finally:
+        if runner is None:
+            active_runner.close()
+
+
+def main() -> None:
+    """CLI entry point for pipeline execution."""
+    parser = ArgumentParser(description="Run the spatiotemporal scene-graph pipeline.")
+    parser.add_argument("--sequence", action="append", dest="sequences", help="Sequence ID to ingest. Repeatable.")
+    parser.add_argument("--manifest", help="JSON manifest containing sequence_ids.", default=None)
+    parser.add_argument("--frame-skip", type=int, default=None, help="Optional frame skip override.")
+    parser.add_argument(
+        "--post-process",
+        action="store_true",
+        help="Run entity-resolution post-processing after each sequence.",
+    )
+    parser.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    args = parser.parse_args()
+
+    sequence_ids = list(args.sequences or [])
+    if args.manifest:
+        sequence_ids.extend(SequenceLoader.list_available(args.manifest))
+    if not sequence_ids:
+        raise SystemExit("Provide at least one --sequence or a --manifest.")
+
+    summary = run_pipeline_cli(
+        sequence_ids,
+        frame_skip=args.frame_skip,
+        post_process=args.post_process,
+    )
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return
+
+    print("Pipeline execution complete.")
+    for sequence_id, frame_count in summary["frame_counts"].items():
+        print(f"- {sequence_id}: {frame_count} frames processed")
+    if summary["post_process_enabled"]:
+        print(f"Post-processing enabled. Last summary: {summary['last_postprocess_summary']}")
+
+
+if __name__ == "__main__":
+    main()

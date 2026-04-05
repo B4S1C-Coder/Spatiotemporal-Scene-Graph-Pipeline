@@ -7,6 +7,7 @@ testable in environments where the UI dependency is not installed.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Protocol
 
 from agents.llm_agent import LLMQueryAgent
@@ -64,6 +65,55 @@ def summarize_query_result(query_result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_result_table_payload(result_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Convert raw rows into a UI-stable table payload.
+    """
+    return [{str(key): value for key, value in row.items()} for row in result_rows]
+
+
+def build_result_chart_spec(result_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """
+    Build a simple chart spec from result rows when one categorical and one numeric
+    column are available.
+    """
+    if not result_rows:
+        return None
+
+    sample_row = result_rows[0]
+    label_column = next(
+        (
+            key
+            for key, value in sample_row.items()
+            if isinstance(value, str) or (isinstance(value, int) and not isinstance(value, bool))
+        ),
+        None,
+    )
+    value_column = next(
+        (
+            key
+            for key, value in sample_row.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ),
+        None,
+    )
+    if label_column is None or value_column is None or label_column == value_column:
+        return None
+
+    chart_rows = [
+        {"label": str(row.get(label_column)), "value": float(row.get(value_column))}
+        for row in result_rows
+        if isinstance(row.get(value_column), (int, float)) and not isinstance(row.get(value_column), bool)
+    ]
+    if not chart_rows:
+        return None
+    return {
+        "label_column": label_column,
+        "value_column": value_column,
+        "rows": chart_rows,
+    }
+
+
 def build_default_query_agent() -> LLMQueryAgent:
     """
     Construct the default LLM query agent used by the Streamlit app.
@@ -88,7 +138,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Status")
-        st.write("Pipeline phases 1-12 are implemented in the repository.")
+        st.write("Pipeline phases 1-13 are implemented in the repository.")
         st.write("The UI currently focuses on graph querying, not live video playback.")
         st.write("Neo4j must be running and reachable before submitting queries.")
 
@@ -122,11 +172,21 @@ def main() -> None:
             st.subheader("Generated Cypher")
             st.code(summary["cypher"] or "No Cypher generated.", language="cypher")
 
-            st.subheader("Raw Result Rows")
-            result_rows = list(query_result.get("results", []))
+            st.subheader("Result Table")
+            result_rows = build_result_table_payload(list(query_result.get("results", [])))
             if result_rows:
-                st.json(result_rows)
+                st.dataframe(result_rows, use_container_width=True)
                 st.caption(f"{summary['result_count']} rows returned.")
+
+                chart_spec = build_result_chart_spec(result_rows)
+                if chart_spec is not None:
+                    st.subheader("Quick Visualization")
+                    st.bar_chart(
+                        {row["label"]: row["value"] for row in chart_spec["rows"]},
+                    )
+
+                with st.expander("Raw JSON"):
+                    st.code(json.dumps(result_rows, indent=2, sort_keys=True), language="json")
             else:
                 st.info("No result rows returned.")
 
