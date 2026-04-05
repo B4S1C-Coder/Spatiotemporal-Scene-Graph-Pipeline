@@ -17,16 +17,26 @@ class FakeBYTETracker:
         self.args = args
         self.frame_rate = frame_rate
         self.update_calls: list[object] = []
-
-    def update(self, tracker_input: object) -> np.ndarray:
-        self.update_calls.append(tracker_input)
-        return np.asarray(
+        self.lost_stracks: list[object] = []
+        self.update_return_value = np.asarray(
             [
                 [10.0, 20.0, 30.0, 40.0, 101.0, 0.91, 0.0, 0.0],
                 [50.0, 60.0, 70.0, 80.0, 202.0, 0.76, 3.0, 1.0],
             ],
             dtype=float,
         )
+
+    def update(self, tracker_input: object) -> np.ndarray:
+        self.update_calls.append(tracker_input)
+        return self.update_return_value
+
+
+class FakeLostTrack:
+    """Minimal lost-track object for lifecycle tests."""
+
+    def __init__(self, track_id: int) -> None:
+        self.track_id = track_id
+        self.state = 2
 
 
 def write_bytetrack_config(config_path: Path) -> None:
@@ -140,7 +150,7 @@ def test_tracking_agent_converts_detections_into_tracked_output(tmp_path: Path) 
             "confidence": 0.91,
             "bbox": [10.0, 20.0, 30.0, 40.0],
             "occlusion": 1,
-            "is_new": False,
+            "is_new": True,
             "is_lost": False,
         },
         {
@@ -151,7 +161,7 @@ def test_tracking_agent_converts_detections_into_tracked_output(tmp_path: Path) 
             "confidence": 0.76,
             "bbox": [50.0, 60.0, 70.0, 80.0],
             "occlusion": 0,
-            "is_new": False,
+            "is_new": True,
             "is_lost": False,
         },
     ]
@@ -170,3 +180,95 @@ def test_tracking_agent_returns_empty_list_for_empty_detections(tmp_path: Path) 
 
     assert tracks == []
     assert agent.tracker.update_calls == []
+
+
+def test_tracking_agent_marks_existing_track_ids_as_not_new(tmp_path: Path) -> None:
+    """Previously seen track IDs should not be marked as new on later frames."""
+    config_path = tmp_path / "bytetrack.yaml"
+    write_bytetrack_config(config_path)
+    agent = TrackingAgent(
+        config_path=config_path,
+        tracker_factory=FakeBYTETracker,
+    )
+    detections = [
+        {
+            "frame_id": 12,
+            "class_id": 0,
+            "class_name": "pedestrian",
+            "confidence": 0.9,
+            "bbox": [10.0, 20.0, 30.0, 40.0],
+            "occlusion": 1,
+        },
+        {
+            "frame_id": 12,
+            "class_id": 3,
+            "class_name": "car",
+            "confidence": 0.75,
+            "bbox": [50.0, 60.0, 70.0, 80.0],
+            "occlusion": 0,
+        },
+    ]
+
+    first_tracks = agent.track_detections(detections)
+    second_tracks = agent.track_detections(detections)
+
+    assert first_tracks[0]["is_new"] is True
+    assert first_tracks[1]["is_new"] is True
+    assert second_tracks[0]["is_new"] is False
+    assert second_tracks[1]["is_new"] is False
+
+
+def test_tracking_agent_emits_newly_lost_tracks_once(tmp_path: Path) -> None:
+    """Lost tracks should be emitted once with the last known snapshot data."""
+    config_path = tmp_path / "bytetrack.yaml"
+    write_bytetrack_config(config_path)
+    agent = TrackingAgent(
+        config_path=config_path,
+        tracker_factory=FakeBYTETracker,
+    )
+    detections = [
+        {
+            "frame_id": 12,
+            "class_id": 0,
+            "class_name": "pedestrian",
+            "confidence": 0.9,
+            "bbox": [10.0, 20.0, 30.0, 40.0],
+            "occlusion": 1,
+        },
+        {
+            "frame_id": 12,
+            "class_id": 3,
+            "class_name": "car",
+            "confidence": 0.75,
+            "bbox": [50.0, 60.0, 70.0, 80.0],
+            "occlusion": 0,
+        },
+    ]
+
+    agent.track_detections(detections)
+    agent.tracker.update_return_value = np.asarray(
+        [
+            [50.0, 60.0, 70.0, 80.0, 202.0, 0.76, 3.0, 1.0],
+        ],
+        dtype=float,
+    )
+    agent.tracker.lost_stracks = [FakeLostTrack(track_id=101)]
+
+    tracks_with_loss = agent.track_detections(detections)
+    repeated_tracks = agent.track_detections(detections)
+
+    lost_tracks = [track for track in tracks_with_loss if track["is_lost"]]
+    assert lost_tracks == [
+        {
+            "track_id": 101,
+            "frame_id": 12,
+            "class_id": 0,
+            "class_name": "pedestrian",
+            "confidence": 0.91,
+            "bbox": [10.0, 20.0, 30.0, 40.0],
+            "occlusion": 1,
+            "is_new": False,
+            "is_lost": True,
+        }
+    ]
+    assert [track for track in repeated_tracks if track["is_lost"]] == []

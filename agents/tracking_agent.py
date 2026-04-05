@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from configs.loader import BYTETRACK_CONFIG_PATH, load_yaml_config
 import numpy as np
+from ultralytics.trackers.basetrack import TrackState
 from ultralytics.trackers.byte_tracker import BYTETracker
 from ultralytics.utils import IterableSimpleNamespace
 
@@ -57,6 +58,9 @@ class TrackingAgent:
         self.config = load_bytetrack_config(self.config_path, config=config)
         self.tracker_args = IterableSimpleNamespace(**self.config)
         self.tracker = tracker_factory(args=self.tracker_args, frame_rate=self.frame_rate)
+        self.seen_track_ids: set[int] = set()
+        self.active_lost_track_ids: set[int] = set()
+        self.track_snapshots: dict[int, dict[str, Any]] = {}
 
     def track_detections(self, detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
@@ -73,10 +77,12 @@ class TrackingAgent:
 
         tracker_input = _TrackerInput.from_detections(detections)
         tracked_rows = self.tracker.update(tracker_input)
-        return self._format_tracked_rows(tracked_rows, detections)
+        tracked_outputs = self._format_tracked_rows(tracked_rows, detections)
+        lost_outputs = self._collect_newly_lost_tracks(detections[0]["frame_id"])
+        return tracked_outputs + lost_outputs
 
-    @staticmethod
     def _format_tracked_rows(
+        self,
         tracked_rows: Any,
         detections: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
@@ -84,20 +90,49 @@ class TrackingAgent:
         for tracked_row in np.asarray(tracked_rows):
             detection_index = int(tracked_row[7])
             source_detection = detections[detection_index]
+            track_id = int(tracked_row[4])
+            is_new = track_id not in self.seen_track_ids
+            self.seen_track_ids.add(track_id)
+            self.active_lost_track_ids.discard(track_id)
+
+            track_output = {
+                "track_id": track_id,
+                "frame_id": int(source_detection["frame_id"]),
+                "class_id": int(source_detection["class_id"]),
+                "class_name": str(source_detection["class_name"]),
+                "confidence": float(tracked_row[5]),
+                "bbox": [float(coordinate) for coordinate in tracked_row[:4]],
+                "occlusion": int(source_detection["occlusion"]),
+                "is_new": is_new,
+                "is_lost": False,
+            }
+            self.track_snapshots[track_id] = track_output.copy()
             formatted_tracks.append(
-                {
-                    "track_id": int(tracked_row[4]),
-                    "frame_id": int(source_detection["frame_id"]),
-                    "class_id": int(source_detection["class_id"]),
-                    "class_name": str(source_detection["class_name"]),
-                    "confidence": float(tracked_row[5]),
-                    "bbox": [float(coordinate) for coordinate in tracked_row[:4]],
-                    "occlusion": int(source_detection["occlusion"]),
-                    "is_new": False,
-                    "is_lost": False,
-                }
+                track_output
             )
         return formatted_tracks
+
+    def _collect_newly_lost_tracks(self, frame_id: int) -> list[dict[str, Any]]:
+        newly_lost_outputs: list[dict[str, Any]] = []
+        current_lost_ids = {
+            int(track.track_id)
+            for track in getattr(self.tracker, "lost_stracks", [])
+            if getattr(track, "state", None) == TrackState.Lost
+        }
+
+        for lost_track_id in sorted(current_lost_ids - self.active_lost_track_ids):
+            snapshot = self.track_snapshots.get(lost_track_id)
+            if snapshot is None:
+                continue
+
+            lost_output = snapshot.copy()
+            lost_output["frame_id"] = int(frame_id)
+            lost_output["is_new"] = False
+            lost_output["is_lost"] = True
+            newly_lost_outputs.append(lost_output)
+
+        self.active_lost_track_ids = current_lost_ids
+        return newly_lost_outputs
 
 
 class _TrackerInput:
