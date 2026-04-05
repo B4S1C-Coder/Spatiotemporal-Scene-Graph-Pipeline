@@ -267,6 +267,6 @@ ui/app.py
 
 Tasks:
 
-- [ ] Implement Streamlit interface
-- [ ] Add natural language query box
-- [ ] Display graph query results
+- [x] Implement Streamlit interface
+- [x] Add natural language query box
+- [x] Display graph query results
