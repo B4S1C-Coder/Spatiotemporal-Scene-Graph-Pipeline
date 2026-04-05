@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
 
 from pipeline.sequence_loader import SequenceLoader
@@ -22,8 +24,10 @@ def create_sequence(root: Path, sequence_id: str, with_gt: bool = True) -> Path:
         "[Sequence]\nname=test\nimDir=img1\nframeRate=30\nseqLength=2\nimWidth=640\nimHeight=480\nimExt=.jpg\n",
         encoding="utf-8",
     )
-    (image_dir / "0000001.jpg").write_text("frame-1", encoding="utf-8")
-    (image_dir / "0000002.jpg").write_text("frame-2", encoding="utf-8")
+    first_frame = np.full((480, 640, 3), 32, dtype=np.uint8)
+    second_frame = np.full((480, 640, 3), 96, dtype=np.uint8)
+    cv2.imwrite(str(image_dir / "0000001.jpg"), first_frame)
+    cv2.imwrite(str(image_dir / "0000002.jpg"), second_frame)
 
     if with_gt:
         (gt_dir / "gt.txt").write_text("1,1,10,10,20,20,1,1,0,0\n", encoding="utf-8")
@@ -177,3 +181,58 @@ def test_scene_payload_rejects_invalid_seqinfo(tmp_path: Path) -> None:
             sequence_id="uav0000149_00000_v",
             config={"data_root": str(sequences_root)},
         )
+
+
+def test_iter_frames_yields_frame_packets_with_scene_payload_on_first_frame(tmp_path: Path) -> None:
+    """Frame iteration should emit packet-shaped dictionaries in order."""
+    sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
+    create_sequence(sequences_root, "uav0000009_04358_v")
+
+    loader = SequenceLoader(
+        sequence_id="uav0000009_04358_v",
+        config={"data_root": str(sequences_root), "img_size": 320},
+    )
+
+    packets = list(loader.iter_frames())
+
+    assert len(packets) == 2
+    assert packets[0]["frame_id"] == 0
+    assert packets[1]["frame_id"] == 1
+    assert packets[0]["frame"].shape == (480, 640, 3)
+    assert packets[0]["frame_letterboxed"].shape == (320, 320, 3)
+    assert packets[0]["scene_payload"] is not None
+    assert packets[1]["scene_payload"] is None
+    assert packets[0]["annotations"] == []
+    assert packets[0]["orig_width"] == 640
+    assert packets[0]["orig_height"] == 480
+
+
+def test_iter_frames_applies_frame_skip_and_handles_missing_annotations(tmp_path: Path) -> None:
+    """Frame iteration should respect frame skipping and use None when gt is absent."""
+    sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
+    create_sequence(sequences_root, "uav0000149_00000_v", with_gt=False)
+
+    loader = SequenceLoader(
+        sequence_id="uav0000149_00000_v",
+        config={"data_root": str(sequences_root), "img_size": 640},
+    )
+
+    packets = list(loader.iter_frames(frame_skip=2))
+
+    assert len(packets) == 1
+    assert packets[0]["frame_id"] == 0
+    assert packets[0]["annotations"] is None
+    assert packets[0]["frame_skip"] == 2
+
+
+def test_iter_frames_rejects_non_positive_frame_skip(tmp_path: Path) -> None:
+    """Frame skipping must be a positive integer."""
+    sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
+    create_sequence(sequences_root, "uav0000009_04358_v")
+    loader = SequenceLoader(
+        sequence_id="uav0000009_04358_v",
+        config={"data_root": str(sequences_root)},
+    )
+
+    with pytest.raises(ValueError, match="frame_skip"):
+        list(loader.iter_frames(frame_skip=0))

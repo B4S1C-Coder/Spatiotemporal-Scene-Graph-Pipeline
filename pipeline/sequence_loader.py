@@ -17,6 +17,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
+
 
 @dataclass(frozen=True)
 class SequencePaths:
@@ -63,8 +66,44 @@ class SequenceLoader:
         return self.scene_payload
 
     def iter_frames(self, frame_skip: int = 1) -> Any:
-        """Frame iteration is implemented in a later task."""
-        raise NotImplementedError("Frame iteration is implemented in a later task.")
+        """
+        Yield frame packets in sequence order.
+
+        This task implements the frame iteration interface and basic frame loading.
+        Annotation parsing remains deferred, so `annotations` is an empty list when
+        gt data exists and `None` otherwise.
+        """
+        if frame_skip <= 0:
+            raise ValueError("frame_skip must be a positive integer.")
+
+        img_size = int(self.config.get("img_size", max(
+            self.scene_payload["frame_width"],
+            self.scene_payload["frame_height"],
+        )))
+
+        for packet_index, frame_path in enumerate(self.paths.frame_paths[::frame_skip]):
+            frame_id = int(frame_path.stem) - 1
+            frame = cv2.imread(str(frame_path))
+            if frame is None:
+                raise ValueError(f"Could not load frame image: {frame_path}")
+
+            frame_letterboxed, scale, pad_w, pad_h = self._letterbox_frame(frame, img_size)
+
+            yield {
+                "frame": frame,
+                "frame_letterboxed": frame_letterboxed,
+                "frame_id": frame_id,
+                "scale": scale,
+                "pad_w": pad_w,
+                "pad_h": pad_h,
+                "orig_width": self.scene_payload["frame_width"],
+                "orig_height": self.scene_payload["frame_height"],
+                "sequence_id": self.sequence_id,
+                "frame_skip": frame_skip,
+                "is_static": False,
+                "annotations": [] if self.paths.gt_file is not None else None,
+                "scene_payload": self.scene_payload if packet_index == 0 else None,
+            }
 
     def get_annotation(self, frame_id: int) -> list[dict[str, Any]]:
         """Annotation parsing is implemented in a later task."""
@@ -181,6 +220,33 @@ class SequenceLoader:
         if altitude_value is not None:
             return float(altitude_value), "lookup"
         return 50.0, "estimated"
+
+    @staticmethod
+    def _letterbox_frame(frame: np.ndarray, img_size: int) -> tuple[np.ndarray, float, float, float]:
+        original_height, original_width = frame.shape[:2]
+        scale = min(img_size / original_width, img_size / original_height)
+
+        resized_width = max(1, int(round(original_width * scale)))
+        resized_height = max(1, int(round(original_height * scale)))
+        resized_frame = cv2.resize(frame, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
+
+        pad_w = (img_size - resized_width) / 2.0
+        pad_h = (img_size - resized_height) / 2.0
+        left = int(np.floor(pad_w))
+        right = int(np.ceil(pad_w))
+        top = int(np.floor(pad_h))
+        bottom = int(np.ceil(pad_h))
+
+        letterboxed_frame = cv2.copyMakeBorder(
+            resized_frame,
+            top,
+            bottom,
+            left,
+            right,
+            borderType=cv2.BORDER_CONSTANT,
+            value=(114, 114, 114),
+        )
+        return letterboxed_frame, scale, float(left), float(top)
 
     @staticmethod
     def _infer_split(sequence_root: Path) -> str:
