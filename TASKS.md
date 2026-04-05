@@ -188,14 +188,14 @@ pipeline/runner.py
 
 Tasks:
 
-- [ ] Implement frame processing loop
-- [ ] Integrate detection agent
-- [ ] Integrate tracking agent
-- [ ] Integrate motion agent
-- [ ] Integrate graph agent
-- [ ] Integrate event agent
-- [ ] Implement batch writer integration
-- [ ] Write integration tests for pipeline runner
+- [x] Implement frame processing loop
+- [x] Integrate detection agent
+- [x] Integrate tracking agent
+- [x] Integrate motion agent
+- [x] Integrate graph agent
+- [x] Integrate event agent
+- [x] Implement batch writer integration
+- [x] Write integration tests for pipeline runner
 
 ---
 

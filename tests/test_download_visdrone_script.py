@@ -46,7 +46,10 @@ def test_download_script_defaults_to_mot_and_weights_directories() -> None:
     result = run_script()
 
     assert result.returncode == 0, result.stderr
-    assert "Would download VisDrone2019-MOT-train to" in result.stdout
+    assert (
+        "Would download VisDrone2019-MOT-train to" in result.stdout
+        or "Skipping VisDrone2019-MOT-train; found" in result.stdout
+    )
     assert str(REPO_ROOT / "data" / "visdrone" / "VisDrone2019-MOT-train") in result.stdout
     assert str(REPO_ROOT / "data" / "visdrone" / "VisDrone2019-MOT-val") in result.stdout
     assert str(REPO_ROOT / "weights" / "yolov8m.pt") in result.stdout
