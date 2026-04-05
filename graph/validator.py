@@ -23,6 +23,16 @@ DISALLOWED_SQL_PATTERNS = (
     "GROUP BY",
     "HAVING ",
 )
+SEMANTIC_RULE_ERRORS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"\bis_active\b", re.IGNORECASE),
+        "Cypher query references is_active, which is not persisted for the currently supported graph relationships.",
+    ),
+    (
+        re.compile(r"class\s*[:=]\s*['\"]person['\"]", re.IGNORECASE),
+        "Cypher query uses class='person'. Use VisDrone class labels such as 'pedestrian' or 'people'.",
+    ),
+)
 READ_PREFIXES = ("MATCH", "OPTIONAL MATCH", "WITH", "UNWIND", "CALL")
 
 
@@ -44,6 +54,9 @@ def validate_cypher_syntax(cypher: str) -> tuple[bool, str | None]:
         return False, "Cypher query must be read-only."
     if any(pattern in upper_cypher for pattern in DISALLOWED_SQL_PATTERNS):
         return False, "Cypher query contains SQL-only syntax unsupported by Neo4j."
+    for pattern, error_message in SEMANTIC_RULE_ERRORS:
+        if pattern.search(normalized):
+            return False, error_message
     if not upper_cypher.startswith(READ_PREFIXES):
         return False, "Cypher query must start with a read clause."
     if "RETURN " not in upper_cypher:

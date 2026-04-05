@@ -94,6 +94,8 @@ def write_llm_config(config_path: Path) -> None:
             prompt:
               system_preamble: |
                 You are a Cypher query generator.
+                IN_ZONE only has frame_id and density_contribution.
+                Do not use class='person'; use 'pedestrian' or 'people'.
               grounding_suffix: |
                 Never infer facts not present in the graph.
               interpretation_preamble: |
@@ -183,6 +185,8 @@ def test_build_system_prompt_includes_schema_and_few_shot_examples(tmp_path: Pat
     assert "Graph Traversal Patterns for LLM Agent" in prompt
     assert "Pattern 1: Object History" in prompt
     assert "Never infer facts not present in the graph." in prompt
+    assert "do not use class='person'" in prompt.lower()
+    assert "IN_ZONE only has frame_id and density_contribution" in prompt
 
 
 def test_validate_cypher_rejects_write_queries(tmp_path: Path) -> None:
@@ -215,6 +219,42 @@ def test_validate_cypher_rejects_group_by_syntax(tmp_path: Path) -> None:
 
     assert is_valid is False
     assert error == "Cypher query contains SQL-only syntax unsupported by Neo4j."
+
+
+def test_validate_cypher_rejects_person_class_label(tmp_path: Path) -> None:
+    """The validator should reject non-VisDrone person class labels."""
+    config_path = tmp_path / "llm.yaml"
+    write_llm_config(config_path)
+    agent = LLMQueryAgent(
+        neo4j_client=FakeNeo4jClient(),
+        llm_client=FakeLLMClient(["RETURN 1"]),
+        config_path=config_path,
+    )
+
+    is_valid, error = agent.validate_cypher("MATCH (o:Object {class: 'person', sequence_id: $seq_id}) RETURN o")
+
+    assert is_valid is False
+    assert error == "Cypher query uses class='person'. Use VisDrone class labels such as 'pedestrian' or 'people'."
+
+
+def test_validate_cypher_rejects_is_active_reference(tmp_path: Path) -> None:
+    """The validator should reject unsupported is_active relationship predicates."""
+    config_path = tmp_path / "llm.yaml"
+    write_llm_config(config_path)
+    agent = LLMQueryAgent(
+        neo4j_client=FakeNeo4jClient(),
+        llm_client=FakeLLMClient(["RETURN 1"]),
+        config_path=config_path,
+    )
+
+    is_valid, error = agent.validate_cypher(
+        "MATCH (o:Object)-[r:IN_ZONE]->(z:Zone) WHERE r.is_active = true RETURN z.zone_id"
+    )
+
+    assert is_valid is False
+    assert error == (
+        "Cypher query references is_active, which is not persisted for the currently supported graph relationships."
+    )
 
 
 def test_query_retries_invalid_cypher_then_executes_valid_query(tmp_path: Path) -> None:
