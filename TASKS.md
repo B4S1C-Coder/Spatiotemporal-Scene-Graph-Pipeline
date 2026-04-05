@@ -93,14 +93,14 @@ agents/motion_agent.py
 
 Tasks:
 
-- [ ] Implement bounding box normalization
-- [ ] Implement centroid computation
-- [ ] Implement trajectory buffer
-- [ ] Implement speed calculation
-- [ ] Implement heading calculation
-- [ ] Implement movement pattern classification
-- [ ] Implement zone assignment
-- [ ] Write tests for motion_agent
+- [x] Implement bounding box normalization
+- [x] Implement centroid computation
+- [x] Implement trajectory buffer
+- [x] Implement speed calculation
+- [x] Implement heading calculation
+- [x] Implement movement pattern classification
+- [x] Implement zone assignment
+- [x] Write tests for motion_agent
 
 ---
 

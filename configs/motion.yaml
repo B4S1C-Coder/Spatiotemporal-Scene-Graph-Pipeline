@@ -1,0 +1,6 @@
+trajectory_buffer_size: 30
+stationary_threshold: 0.003
+erratic_threshold: 800.0
+grid_size: 4
+default_speed: 0.0
+default_heading_deg: 0.0

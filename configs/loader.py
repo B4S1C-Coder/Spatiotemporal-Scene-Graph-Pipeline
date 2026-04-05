@@ -16,6 +16,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DETECTION_CONFIG_PATH = REPO_ROOT / "configs" / "detection.yaml"
 BYTETRACK_CONFIG_PATH = REPO_ROOT / "configs" / "bytetrack.yaml"
+MOTION_CONFIG_PATH = REPO_ROOT / "configs" / "motion.yaml"
 
 
 def load_yaml_config(
