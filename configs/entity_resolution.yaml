@@ -1,0 +1,14 @@
+reid:
+  spatial_threshold: 0.10
+  temporal_gap_frames: 60
+  heading_diff_max_deg: 45.0
+  confidence_threshold: 0.70
+  ambiguity_delta: 0.05
+  ambiguous_log_path: logs/reid_ambiguous.jsonl
+  weights:
+    spatial: 0.35
+    temporal: 0.25
+    heading: 0.20
+    class: 0.20
+coexists:
+  default_min_distance: 1.0

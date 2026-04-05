@@ -210,10 +210,11 @@ agents/entity_resolution_agent.py
 Tasks:
 
 - [ ] Implement track pair comparison
-- [ ] Implement re-identification scoring
-- [ ] Implement SAME_ENTITY_AS creation
-- [ ] Implement COEXISTS_WITH relationship creation
-- [ ] Write tests for entity_resolution_agent
+- [x] Implement track pair comparison
+- [x] Implement re-identification scoring
+- [x] Implement SAME_ENTITY_AS creation
+- [x] Implement COEXISTS_WITH relationship creation
+- [x] Write tests for entity_resolution_agent
 
 ---
 
