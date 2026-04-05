@@ -116,10 +116,10 @@ graph/neo4j_client.py
 
 Tasks:
 
-- [ ] Implement Neo4j connection wrapper
-- [ ] Implement query execution method
-- [ ] Implement batch transaction support
-- [ ] Write tests for neo4j_client
+- [x] Implement Neo4j connection wrapper
+- [x] Implement query execution method
+- [x] Implement batch transaction support
+- [x] Write tests for neo4j_client
 
 ---
 
@@ -133,9 +133,9 @@ graph/schema.py
 
 Tasks:
 
-- [ ] Implement index creation
-- [ ] Implement ObjectClass taxonomy initialization
-- [ ] Write tests for schema setup
+- [x] Implement index creation
+- [x] Implement ObjectClass taxonomy initialization
+- [x] Write tests for schema setup
 
 ---
 
@@ -149,12 +149,12 @@ agents/graph_agent.py
 
 Tasks:
 
-- [ ] Implement object node MERGE logic
-- [ ] Implement frame node creation
-- [ ] Implement zone node creation
-- [ ] Implement relationship creation (IN_ZONE, APPEARED_IN)
-- [ ] Implement batch write logic
-- [ ] Write tests for graph_agent
+- [x] Implement object node MERGE logic
+- [x] Implement frame node creation
+- [x] Implement zone node creation
+- [x] Implement relationship creation (IN_ZONE, APPEARED_IN)
+- [x] Implement batch write logic
+- [x] Write tests for graph_agent
 
 ---
 

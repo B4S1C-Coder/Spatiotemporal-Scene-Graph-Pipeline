@@ -1,0 +1,38 @@
+neo4j:
+  uri: bolt://localhost:7687
+  user: neo4j
+  password: your_password
+
+batch:
+  frame_batch_size: 30
+  retry_buffer_path: logs/graph_write_failures.jsonl
+
+schema:
+  indexes:
+    - CREATE INDEX object_track IF NOT EXISTS FOR (o:Object) ON (o.track_id, o.sequence_id)
+    - CREATE INDEX object_class IF NOT EXISTS FOR (o:Object) ON (o.class)
+    - CREATE INDEX event_type IF NOT EXISTS FOR (e:Event) ON (e.event_type, e.sequence_id)
+    - CREATE INDEX zone_id IF NOT EXISTS FOR (z:Zone) ON (z.zone_id, z.sequence_id)
+    - CREATE INDEX frame_id IF NOT EXISTS FOR (f:Frame) ON (f.frame_id, f.sequence_id)
+    - CREATE INDEX scene_seq IF NOT EXISTS FOR (s:Scene) ON (s.sequence_id)
+  object_classes:
+    - name: pedestrian
+      class_group: VulnerableRoadUser
+    - name: people
+      class_group: VulnerableRoadUser
+    - name: bicycle
+      class_group: VulnerableRoadUser
+    - name: car
+      class_group: MotorVehicle
+    - name: van
+      class_group: MotorVehicle
+    - name: truck
+      class_group: MotorVehicle
+    - name: tricycle
+      class_group: VulnerableRoadUser
+    - name: awning-tricycle
+      class_group: VulnerableRoadUser
+    - name: bus
+      class_group: MotorVehicle
+    - name: motor
+      class_group: VulnerableRoadUser
