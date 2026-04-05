@@ -270,3 +270,27 @@ Tasks:
 - [x] Implement Streamlit interface
 - [x] Add natural language query box
 - [x] Display graph query results
+
+---
+
+# Phase 13 — Follow-up Integration and Usability
+
+Files:
+
+```
+pipeline/post_processor.py
+pipeline/runner.py
+agents/entity_resolution_agent.py
+ui/app.py
+README.md
+docs/usage.md
+```
+
+Tasks:
+
+- [ ] Wire entity resolution into end-of-sequence post-processing
+- [ ] Add a production CLI for pipeline execution
+- [ ] Add a production CLI for natural-language graph querying
+- [ ] Add richer graph result visualization in the UI
+- [ ] Add an end-to-end ingestion example for writing a real sequence into Neo4j
+- [ ] Expand README quickstart to cover setup, ingestion, querying, and UI usage
