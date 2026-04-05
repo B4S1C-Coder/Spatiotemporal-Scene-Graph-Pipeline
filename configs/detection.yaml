@@ -1,0 +1,21 @@
+model:
+  preferred_path: weights/yolov8m_visdrone.pt
+  fallback_path: weights/yolov8m.pt
+
+inference:
+  confidence_threshold: 0.35
+  iou_threshold: 0.45
+  img_size: 640
+
+vision:
+  vision_mode: offline
+  data_root: data/visdrone/VisDrone2019-MOT-val/sequences
+  frame_skip: 1
+  img_size: 1280
+
+scene_defaults:
+  altitude_fallback_m: 50.0
+  weather: clear
+  weather_source: default
+  scene_type: urban
+  time_of_day: daytime

@@ -1,9 +1,8 @@
 """
 Detection agent model-loading utilities.
 
-This module currently implements only the model-loading portion of the
-Detection Agent contract. Frame inference and detection formatting are handled
-in later tasks.
+This module currently implements model loading and raw frame inference for the
+Detection Agent contract. Detection formatting is handled in a later task.
 """
 
 from __future__ import annotations
@@ -11,22 +10,25 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from configs.loader import DETECTION_CONFIG_PATH, load_yaml_config
 from ultralytics import YOLO
 
 
-DEFAULT_MODEL_PATH = "weights/yolov8m_visdrone.pt"
-FALLBACK_MODEL_PATH = "weights/yolov8m.pt"
-
-
 def load_yolo_model(
-    model_path: str,
+    model_path: str | None = None,
+    fallback_model_path: str | None = None,
+    config_path: str | Path = DETECTION_CONFIG_PATH,
+    config: dict[str, Any] | None = None,
     yolo_factory: Callable[[str], Any] = YOLO,
 ) -> Any:
     """
     Load a YOLO model from a configured path.
 
     Args:
-        model_path: Preferred model path.
+        model_path: Preferred model path override.
+        fallback_model_path: Fallback model path override.
+        config_path: YAML config file location.
+        config: Optional runtime config overrides.
         yolo_factory: Injectable YOLO constructor for testing.
 
     Returns:
@@ -36,7 +38,15 @@ def load_yolo_model(
         FileNotFoundError: If neither the configured path nor the supported
             fallback path exists on disk.
     """
-    resolved_model_path = _resolve_model_path(model_path)
+    detection_config = load_yaml_config(config_path, overrides=config)
+    model_config = detection_config.get("model", {})
+    preferred_model_path = model_path or model_config["preferred_path"]
+    fallback_path = fallback_model_path or model_config["fallback_path"]
+    resolved_model_path = _resolve_model_path(
+        preferred_model_path,
+        fallback_path,
+        Path(config_path).resolve().parents[1],
+    )
     return yolo_factory(str(resolved_model_path))
 
 
@@ -45,7 +55,9 @@ class DetectionAgent:
 
     def __init__(
         self,
-        model_path: str = DEFAULT_MODEL_PATH,
+        model_path: str | None = None,
+        config_path: str | Path = DETECTION_CONFIG_PATH,
+        config: dict[str, Any] | None = None,
         yolo_factory: Callable[[str], Any] = YOLO,
     ) -> None:
         """
@@ -53,20 +65,73 @@ class DetectionAgent:
 
         Args:
             model_path: Preferred path to the YOLO checkpoint.
+            config_path: YAML config file location.
+            config: Optional runtime config overrides.
             yolo_factory: Injectable YOLO constructor for testing.
         """
-        self.model_path = str(_resolve_model_path(model_path))
-        self.model = load_yolo_model(self.model_path, yolo_factory=yolo_factory)
+        self.config_path = Path(config_path)
+        self.config = load_yaml_config(self.config_path, overrides=config)
+        inference_config = self.config["inference"]
+        model_config = self.config["model"]
+
+        resolved_model_path = _resolve_model_path(
+            model_path or model_config["preferred_path"],
+            model_config["fallback_path"],
+            self.config_path.resolve().parents[1],
+        )
+        self.model_path = str(resolved_model_path)
+        self.model = load_yolo_model(
+            model_path=self.model_path,
+            fallback_model_path=model_config["fallback_path"],
+            config_path=self.config_path,
+            config=self.config,
+            yolo_factory=yolo_factory,
+        )
+        self.conf_threshold = float(inference_config["confidence_threshold"])
+        self.iou_threshold = float(inference_config["iou_threshold"])
+        self.img_size = int(inference_config["img_size"])
+
+    def infer_frame(self, frame_packet: dict[str, Any]) -> Any:
+        """
+        Run raw YOLO inference for a single frame packet.
+
+        Args:
+            frame_packet: Sequence loader frame packet containing `frame_letterboxed`.
+
+        Returns:
+            Raw prediction object returned by `YOLO.predict`.
+
+        Raises:
+            KeyError: If the frame packet does not include `frame_letterboxed`.
+        """
+        frame = frame_packet["frame_letterboxed"]
+        return self.model.predict(
+            source=frame,
+            conf=self.conf_threshold,
+            iou=self.iou_threshold,
+            imgsz=self.img_size,
+            verbose=False,
+        )
 
 
-def _resolve_model_path(model_path: str) -> Path:
-    preferred_path = Path(model_path)
+def _resolve_model_path(
+    model_path: str,
+    fallback_model_path: str,
+    base_dir: Path,
+) -> Path:
+    preferred_path = _resolve_path(model_path, base_dir)
     if preferred_path.is_file():
         return preferred_path
 
-    if preferred_path.as_posix() == DEFAULT_MODEL_PATH:
-        fallback_path = Path(FALLBACK_MODEL_PATH)
-        if fallback_path.is_file():
-            return fallback_path
+    fallback_path = _resolve_path(fallback_model_path, base_dir)
+    if fallback_path.is_file():
+        return fallback_path
 
     raise FileNotFoundError(f"YOLO model weights not found at {preferred_path}")
+
+
+def _resolve_path(path_value: str, base_dir: Path) -> Path:
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    return base_dir / path

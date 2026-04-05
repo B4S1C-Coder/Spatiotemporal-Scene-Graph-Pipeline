@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import textwrap
 
 import cv2
 import numpy as np
@@ -35,14 +36,46 @@ def create_sequence(root: Path, sequence_id: str, with_gt: bool = True) -> Path:
     return sequence_root
 
 
+def write_detection_config(config_path: Path, data_root: Path) -> None:
+    """Write a minimal detection config for SequenceLoader tests."""
+    config_path.write_text(
+        textwrap.dedent(
+            f"""
+            model:
+              preferred_path: weights/yolov8m_visdrone.pt
+              fallback_path: weights/yolov8m.pt
+            inference:
+              confidence_threshold: 0.35
+              iou_threshold: 0.45
+              img_size: 640
+            vision:
+              vision_mode: offline
+              data_root: {data_root}
+              frame_skip: 1
+              img_size: 1280
+            scene_defaults:
+              altitude_fallback_m: 50.0
+              weather: clear
+              weather_source: default
+              scene_type: urban
+              time_of_day: daytime
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_sequence_loader_resolves_sequence_from_sequences_root(tmp_path: Path) -> None:
     """The loader should resolve a sequence directly under a sequences directory."""
     sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
     sequence_root = create_sequence(sequences_root, "uav0000009_04358_v")
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path, sequences_root)
 
     loader = SequenceLoader(
         sequence_id="uav0000009_04358_v",
-        config={"data_root": str(sequences_root)},
+        config={"vision": {"data_root": str(sequences_root)}},
     )
 
     paths = loader.get_sequence_paths()
@@ -62,7 +95,7 @@ def test_sequence_loader_resolves_sequence_from_visdrone_root(tmp_path: Path) ->
 
     loader = SequenceLoader(
         sequence_id="uav0000013_00000_v",
-        config={"data_root": str(visdrone_root)},
+        config={"vision": {"data_root": str(visdrone_root)}},
     )
 
     assert loader.get_sequence_paths().sequence_root == sequence_root
@@ -75,16 +108,16 @@ def test_sequence_loader_sets_gt_file_to_none_when_annotations_missing(tmp_path:
 
     loader = SequenceLoader(
         sequence_id="uav0000149_00000_v",
-        config={"data_root": str(sequences_root)},
+        config={"vision": {"data_root": str(sequences_root)}},
     )
 
     assert loader.get_sequence_paths().gt_file is None
 
 
-def test_sequence_loader_requires_data_root() -> None:
-    """The loader should fail fast when config lacks data_root."""
+def test_sequence_loader_requires_data_root_when_override_clears_it() -> None:
+    """The loader should fail fast when no usable data_root remains after overrides."""
     with pytest.raises(ValueError, match="data_root"):
-        SequenceLoader(sequence_id="uav0000009_04358_v", config={})
+        SequenceLoader(sequence_id="uav0000009_04358_v", config={"vision": {"data_root": ""}})
 
 
 def test_sequence_loader_requires_frame_directory_and_seqinfo(tmp_path: Path) -> None:
@@ -95,7 +128,7 @@ def test_sequence_loader_requires_frame_directory_and_seqinfo(tmp_path: Path) ->
     with pytest.raises(FileNotFoundError, match="frame directory"):
         SequenceLoader(
             sequence_id="uav0000073_00600_v",
-            config={"data_root": str(tmp_path / "sequences")},
+            config={"vision": {"data_root": str(tmp_path / "sequences")}},
         )
 
 
@@ -127,7 +160,7 @@ def test_scene_payload_parses_seqinfo_and_infers_defaults(tmp_path: Path) -> Non
 
     loader = SequenceLoader(
         sequence_id="uav0000009_04358_v",
-        config={"data_root": str(sequences_root), "frame_skip": 3},
+        config={"vision": {"data_root": str(sequences_root), "frame_skip": 3}},
     )
 
     scene_payload = loader.get_scene_payload()
@@ -161,7 +194,7 @@ def test_scene_payload_uses_lookup_metadata_when_available(tmp_path: Path) -> No
 
     loader = SequenceLoader(
         sequence_id="uav0000013_00000_v",
-        config={"data_root": str(visdrone_root)},
+        config={"vision": {"data_root": str(visdrone_root)}},
     )
 
     scene_payload = loader.get_scene_payload()
@@ -179,7 +212,7 @@ def test_scene_payload_rejects_invalid_seqinfo(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="seqLength"):
         SequenceLoader(
             sequence_id="uav0000149_00000_v",
-            config={"data_root": str(sequences_root)},
+            config={"vision": {"data_root": str(sequences_root)}},
         )
 
 
@@ -190,7 +223,7 @@ def test_iter_frames_yields_frame_packets_with_scene_payload_on_first_frame(tmp_
 
     loader = SequenceLoader(
         sequence_id="uav0000009_04358_v",
-        config={"data_root": str(sequences_root), "img_size": 320},
+        config={"vision": {"data_root": str(sequences_root), "img_size": 320}},
     )
 
     packets = list(loader.iter_frames())
@@ -214,7 +247,7 @@ def test_iter_frames_applies_frame_skip_and_handles_missing_annotations(tmp_path
 
     loader = SequenceLoader(
         sequence_id="uav0000149_00000_v",
-        config={"data_root": str(sequences_root), "img_size": 640},
+        config={"vision": {"data_root": str(sequences_root), "img_size": 640}},
     )
 
     packets = list(loader.iter_frames(frame_skip=2))
@@ -231,7 +264,7 @@ def test_iter_frames_rejects_non_positive_frame_skip(tmp_path: Path) -> None:
     create_sequence(sequences_root, "uav0000009_04358_v")
     loader = SequenceLoader(
         sequence_id="uav0000009_04358_v",
-        config={"data_root": str(sequences_root)},
+        config={"vision": {"data_root": str(sequences_root)}},
     )
 
     with pytest.raises(ValueError, match="frame_skip"):
@@ -244,7 +277,7 @@ def test_get_annotation_is_not_implemented_yet(tmp_path: Path) -> None:
     create_sequence(sequences_root, "uav0000009_04358_v")
     loader = SequenceLoader(
         sequence_id="uav0000009_04358_v",
-        config={"data_root": str(sequences_root)},
+        config={"vision": {"data_root": str(sequences_root)}},
     )
 
     with pytest.raises(NotImplementedError, match="Annotation parsing"):
@@ -260,10 +293,59 @@ def test_iter_frames_raises_on_unreadable_frame(tmp_path: Path) -> None:
 
     loader = SequenceLoader(
         sequence_id="uav0000009_04358_v",
-        config={"data_root": str(sequences_root)},
+        config={"vision": {"data_root": str(sequences_root)}},
     )
 
     frame_iterator = loader.iter_frames()
     next(frame_iterator)
     with pytest.raises(ValueError, match="Could not load frame image"):
         next(frame_iterator)
+
+
+def test_sequence_loader_reads_defaults_from_detection_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SequenceLoader should inherit frame and scene defaults from detection.yaml."""
+    repo_like_root = tmp_path / "repo"
+    sequences_root = repo_like_root / "data" / "visdrone" / "VisDrone2019-MOT-val" / "sequences"
+    config_path = repo_like_root / "configs" / "detection.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    create_sequence(sequences_root, "uav0000009_04358_v")
+    config_path.write_text(
+        textwrap.dedent(
+            f"""
+            model:
+              preferred_path: weights/yolov8m_visdrone.pt
+              fallback_path: weights/yolov8m.pt
+            inference:
+              confidence_threshold: 0.35
+              iou_threshold: 0.45
+              img_size: 640
+            vision:
+              vision_mode: offline
+              data_root: {sequences_root}
+              frame_skip: 2
+              img_size: 320
+            scene_defaults:
+              altitude_fallback_m: 77.0
+              weather: overcast
+              weather_source: default
+              scene_type: suburban
+              time_of_day: dusk_dawn
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("pipeline.sequence_loader.DETECTION_CONFIG_PATH", config_path)
+    loader = SequenceLoader(sequence_id="uav0000009_04358_v")
+
+    scene_payload = loader.get_scene_payload()
+    packets = list(loader.iter_frames())
+
+    assert scene_payload["altitude_m"] == 77.0
+    assert scene_payload["weather"] == "overcast"
+    assert scene_payload["scene_type"] == "suburban"
+    assert scene_payload["time_of_day"] == "dusk_dawn"
+    assert scene_payload["frame_skip"] == 2
+    assert len(packets) == 1
+    assert packets[0]["frame_letterboxed"].shape == (320, 320, 3)

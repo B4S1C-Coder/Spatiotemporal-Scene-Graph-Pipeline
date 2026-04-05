@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import cv2
+from configs.loader import DETECTION_CONFIG_PATH, load_yaml_config
 import numpy as np
 
 
@@ -35,21 +36,21 @@ class SequencePaths:
 class SequenceLoader:
     """Load and validate a VisDrone MOT sequence from disk."""
 
-    def __init__(self, sequence_id: str, config: dict[str, Any]):
+    def __init__(self, sequence_id: str, config: dict[str, Any] | None = None):
         """
         Resolve a sequence from the configured VisDrone data root.
 
         Args:
             sequence_id: VisDrone sequence directory name.
-            config: Loader configuration. Must include `data_root`.
+            config: Loader configuration overrides.
 
         Raises:
             ValueError: If `data_root` is missing from config.
             FileNotFoundError: If the sequence or required files do not exist.
         """
         self.sequence_id = sequence_id
-        self.config = config
-        self.data_root = self._resolve_data_root(config)
+        self.config = self._build_config(config or {})
+        self.data_root = self._resolve_data_root(self.config)
         self.paths = self._build_sequence_paths(sequence_id, self.data_root)
         self.scene_payload = self._build_scene_payload()
 
@@ -65,7 +66,7 @@ class SequenceLoader:
         """Return the parsed and inferred Scene payload for this sequence."""
         return self.scene_payload
 
-    def iter_frames(self, frame_skip: int = 1) -> Any:
+    def iter_frames(self, frame_skip: int | None = None) -> Any:
         """
         Yield frame packets in sequence order.
 
@@ -73,15 +74,13 @@ class SequenceLoader:
         Annotation parsing remains deferred, so `annotations` is an empty list when
         gt data exists and `None` otherwise.
         """
-        if frame_skip <= 0:
+        effective_frame_skip = int(frame_skip if frame_skip is not None else self.config["vision"]["frame_skip"])
+        if effective_frame_skip <= 0:
             raise ValueError("frame_skip must be a positive integer.")
 
-        img_size = int(self.config.get("img_size", max(
-            self.scene_payload["frame_width"],
-            self.scene_payload["frame_height"],
-        )))
+        img_size = int(self.config["vision"]["img_size"])
 
-        for packet_index, frame_path in enumerate(self.paths.frame_paths[::frame_skip]):
+        for packet_index, frame_path in enumerate(self.paths.frame_paths[::effective_frame_skip]):
             frame_id = int(frame_path.stem) - 1
             frame = cv2.imread(str(frame_path))
             if frame is None:
@@ -99,7 +98,7 @@ class SequenceLoader:
                 "orig_width": self.scene_payload["frame_width"],
                 "orig_height": self.scene_payload["frame_height"],
                 "sequence_id": self.sequence_id,
-                "frame_skip": frame_skip,
+                "frame_skip": effective_frame_skip,
                 "is_static": False,
                 "annotations": [] if self.paths.gt_file is not None else None,
                 "scene_payload": self.scene_payload if packet_index == 0 else None,
@@ -129,8 +128,13 @@ class SequenceLoader:
         raise ValueError("Sequence manifest must be a list or contain a 'sequence_ids' list.")
 
     @staticmethod
+    def _build_config(config_overrides: dict[str, Any]) -> dict[str, Any]:
+        return load_yaml_config(DETECTION_CONFIG_PATH, overrides=config_overrides)
+
+    @staticmethod
     def _resolve_data_root(config: dict[str, Any]) -> Path:
-        data_root = config.get("data_root")
+        vision_config = config.get("vision", {})
+        data_root = vision_config.get("data_root")
         if not data_root:
             raise ValueError("SequenceLoader config must include 'data_root'.")
         return Path(data_root)
@@ -142,7 +146,11 @@ class SequenceLoader:
             self.data_root,
         ).get(self.sequence_id, {})
 
-        altitude_m, altitude_source = self._resolve_altitude(sequence_meta)
+        scene_defaults = self.config["scene_defaults"]
+        altitude_m, altitude_source = self._resolve_altitude(
+            sequence_meta,
+            float(scene_defaults["altitude_fallback_m"]),
+        )
 
         return {
             "sequence_id": self.sequence_id,
@@ -152,12 +160,12 @@ class SequenceLoader:
             "frame_height": seqinfo["imHeight"],
             "altitude_m": altitude_m,
             "altitude_source": altitude_source,
-            "weather": str(self.config.get("default_weather", "clear")),
-            "weather_source": str(self.config.get("weather_source", "default")),
-            "scene_type": str(self.config.get("default_scene_type", "urban")),
-            "time_of_day": str(self.config.get("default_time_of_day", "daytime")),
+            "weather": str(scene_defaults["weather"]),
+            "weather_source": str(scene_defaults["weather_source"]),
+            "scene_type": str(scene_defaults["scene_type"]),
+            "time_of_day": str(scene_defaults["time_of_day"]),
             "split": self._infer_split(self.paths.sequence_root),
-            "frame_skip": int(self.config.get("frame_skip", 1)),
+            "frame_skip": int(self.config["vision"]["frame_skip"]),
             "annotation_available": self.paths.gt_file is not None,
         }
 
@@ -215,11 +223,14 @@ class SequenceLoader:
         return None
 
     @staticmethod
-    def _resolve_altitude(sequence_meta: dict[str, Any]) -> tuple[float, str]:
+    def _resolve_altitude(
+        sequence_meta: dict[str, Any],
+        fallback_altitude_m: float,
+    ) -> tuple[float, str]:
         altitude_value = sequence_meta.get("altitude_m")
         if altitude_value is not None:
             return float(altitude_value), "lookup"
-        return 50.0, "estimated"
+        return fallback_altitude_m, "estimated"
 
     @staticmethod
     def _letterbox_frame(frame: np.ndarray, img_size: int) -> tuple[np.ndarray, float, float, float]:
