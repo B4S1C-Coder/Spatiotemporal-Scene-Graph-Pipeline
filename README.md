@@ -4,6 +4,32 @@ This project ingests drone-video-derived scene data, builds a Neo4j-backed
 spatiotemporal graph, and exposes the graph through a natural-language query
 interface.
 
+```mermaid
+flowchart LR
+    A[VisDrone Video Sequences] --> B[Detection Agent\nYOLOv8]
+    B --> C[Tracking Agent\nByteTrack]
+    C --> D[Coordinate & Motion Agent\nNormalization + Trajectory]
+    D --> E[Graph Construction Agent\nNeo4j Writer]
+    D --> F[Event Detection Agent\nRule-based + Statistical]
+    F --> E
+    E --> G[(Neo4j Graph Database\nDigital Clone)]
+    G --> H[LLM Query Agent\nText → Cypher → Answer]
+    H --> I[User / Interface]
+
+    style G fill:#2d6a4f,color:#fff
+    style H fill:#1d3557,color:#fff
+```
+
+Raw feed example (from VisDrone Dataset):
+![Raw Feed](./data/visdrone/VisDrone2019-MOT-val/sequences/uav0000086_00000_v/0000002.jpg)
+
+Graph for above enviornment in Neo4j can look something like this:
+![Visualize](./docs/visualisation.png)
+
+Query (& results) against this real environment (powered by a locally running `Qwen 3.5 4GB Q4_K_M` via `llama.cpp`):
+![ui1](./docs/ui1.png)
+![ui2](./docs/ui2.png)
+
 ## What is implemented
 
 - VisDrone dataset download and environment bootstrap scripts
