@@ -250,10 +250,10 @@ eval/cypher_accuracy.py
 
 Tasks:
 
-- [ ] Implement detection evaluation script
-- [ ] Implement tracking evaluation script
-- [ ] Implement event precision evaluation
-- [ ] Implement Cypher generation accuracy evaluation
+- [x] Implement detection evaluation script
+- [x] Implement tracking evaluation script
+- [x] Implement event precision evaluation
+- [x] Implement Cypher generation accuracy evaluation
 
 ---
 
