@@ -58,7 +58,7 @@ Tasks:
 - [ ] Implement YOLOv8 model loader
 - [x] Implement YOLOv8 model loader
 - [x] Implement frame inference function
-- [ ] Implement detection output formatting
+- [x] Implement detection output formatting
 - [ ] Load detection configuration from configs/detection.yaml
 - [ ] Write tests for detection_agent
 

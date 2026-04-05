@@ -1,8 +1,8 @@
 """
 Detection agent model-loading utilities.
 
-This module currently implements model loading and raw frame inference for the
-Detection Agent contract. Detection formatting is handled in a later task.
+This module currently implements model loading, raw frame inference, and raw
+YOLO detection formatting for the Detection Agent contract.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from configs.loader import DETECTION_CONFIG_PATH, load_yaml_config
+import numpy as np
 from ultralytics import YOLO
 
 
@@ -113,6 +114,50 @@ class DetectionAgent:
             verbose=False,
         )
 
+    def format_detections(
+        self,
+        raw_results: Any,
+        frame_packet: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """
+        Convert raw YOLO results into the detection output contract.
+
+        Args:
+            raw_results: Raw results returned by `infer_frame`.
+            frame_packet: Sequence loader frame packet with frame metadata.
+
+        Returns:
+            List of formatted detection dictionaries.
+        """
+        frame_id = int(frame_packet["frame_id"])
+        result_items = list(raw_results or [])
+        if not result_items:
+            return []
+
+        names = _extract_class_names(result_items[0], self.model)
+        boxes = getattr(result_items[0], "boxes", None)
+        if boxes is None:
+            return []
+
+        xyxy_rows = _to_rows(getattr(boxes, "xyxy", None))
+        confidence_rows = _to_rows(getattr(boxes, "conf", None))
+        class_rows = _to_rows(getattr(boxes, "cls", None))
+
+        formatted_detections: list[dict[str, Any]] = []
+        for bbox_row, confidence_row, class_row in zip(xyxy_rows, confidence_rows, class_rows):
+            class_id = int(class_row[0])
+            formatted_detections.append(
+                {
+                    "frame_id": frame_id,
+                    "class_id": class_id,
+                    "class_name": str(names[class_id]),
+                    "confidence": float(confidence_row[0]),
+                    "bbox": [float(coordinate) for coordinate in bbox_row[:4]],
+                    "occlusion": 0,
+                }
+            )
+        return formatted_detections
+
 
 def _resolve_model_path(
     model_path: str,
@@ -135,3 +180,29 @@ def _resolve_path(path_value: str, base_dir: Path) -> Path:
     if path.is_absolute():
         return path
     return base_dir / path
+
+
+def _extract_class_names(result: Any, model: Any) -> dict[int, str] | list[str]:
+    names = getattr(result, "names", None)
+    if names is not None:
+        return names
+    return getattr(model, "names", {})
+
+
+def _to_rows(value: Any) -> list[list[float]]:
+    if value is None:
+        return []
+
+    if hasattr(value, "tolist"):
+        python_value = value.tolist()
+    else:
+        python_value = value
+
+    if isinstance(python_value, np.ndarray):
+        python_value = python_value.tolist()
+
+    if not isinstance(python_value, list):
+        return [[float(python_value)]]
+    if python_value and not isinstance(python_value[0], list):
+        return [[float(item)] for item in python_value]
+    return [[float(item) for item in row] for row in python_value]
