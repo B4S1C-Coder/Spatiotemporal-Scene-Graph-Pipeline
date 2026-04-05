@@ -228,12 +228,12 @@ agents/llm_agent.py
 
 Tasks:
 
-- [ ] Implement natural language query interface
-- [ ] Implement Cypher generation prompt
-- [ ] Implement Cypher validation
-- [ ] Implement Neo4j query execution
-- [ ] Implement answer interpretation pass
-- [ ] Write tests for llm_agent
+- [x] Implement natural language query interface
+- [x] Implement Cypher generation prompt
+- [x] Implement Cypher validation
+- [x] Implement Neo4j query execution
+- [x] Implement answer interpretation pass
+- [x] Write tests for llm_agent
 
 ---
 
