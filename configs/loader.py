@@ -18,6 +18,7 @@ DETECTION_CONFIG_PATH = REPO_ROOT / "configs" / "detection.yaml"
 BYTETRACK_CONFIG_PATH = REPO_ROOT / "configs" / "bytetrack.yaml"
 MOTION_CONFIG_PATH = REPO_ROOT / "configs" / "motion.yaml"
 GRAPH_CONFIG_PATH = REPO_ROOT / "configs" / "graph.yaml"
+EVENT_CONFIG_PATH = REPO_ROOT / "configs" / "event.yaml"
 
 
 def load_yaml_config(

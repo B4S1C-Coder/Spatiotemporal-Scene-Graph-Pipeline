@@ -168,13 +168,13 @@ agents/event_agent.py
 
 Tasks:
 
-- [ ] Implement NEAR_MISS detection
-- [ ] Implement LOITER detection
-- [ ] Implement CONVOY detection
-- [ ] Implement CROWD_FORM detection
-- [ ] Implement JAYWALKING detection
-- [ ] Load thresholds from configs/event.yaml
-- [ ] Write tests for event_agent
+- [x] Implement NEAR_MISS detection
+- [x] Implement LOITER detection
+- [x] Implement CONVOY detection
+- [x] Implement CROWD_FORM detection
+- [x] Implement JAYWALKING detection
+- [x] Load thresholds from configs/event.yaml
+- [x] Write tests for event_agent
 
 ---
 

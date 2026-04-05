@@ -1,0 +1,30 @@
+near_miss:
+  distance_threshold: 0.05
+  min_speed: 0.004
+  dedup_frames: 15
+
+loiter:
+  time_threshold_frames: 90
+  classes:
+    - pedestrian
+    - people
+
+convoy:
+  distance_min: 0.03
+  distance_max: 0.12
+  heading_diff_max_deg: 20.0
+  persistence_frames: 45
+
+crowd_form:
+  density_threshold: 8
+  time_window_frames: 60
+
+jaywalking:
+  vehicle_ratio_threshold: 0.8
+  classes:
+    - pedestrian
+    - people
+
+zones:
+  default_vehicle_ratio: 0.0
+  default_pedestrian_ratio: 0.0
