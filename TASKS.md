@@ -75,6 +75,7 @@ agents/tracking_agent.py
 Tasks:
 
 - [ ] Integrate ByteTrack tracker
+- [x] Integrate ByteTrack tracker
 - [ ] Implement detection-to-track conversion
 - [ ] Implement track_id persistence
 - [ ] Implement lost track handling
