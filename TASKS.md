@@ -76,7 +76,7 @@ Tasks:
 
 - [ ] Integrate ByteTrack tracker
 - [x] Integrate ByteTrack tracker
-- [ ] Implement detection-to-track conversion
+- [x] Implement detection-to-track conversion
 - [ ] Implement track_id persistence
 - [ ] Implement lost track handling
 - [ ] Write tests for tracking_agent
