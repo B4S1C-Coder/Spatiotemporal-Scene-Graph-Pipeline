@@ -80,6 +80,9 @@ class LLMQueryAgent:
             base_url=_resolve_llm_base_url(self.config),
             api_key=_resolve_llm_api_key(self.config),
         )
+        logging_config = self.config.get("logging", {})
+        self.validation_failures_path = Path(logging_config.get("validation_failures_path", "logs/validation_failures.jsonl"))
+        self.zero_results_path = Path(logging_config.get("zero_results_path", "logs/llm_zero_results.jsonl"))
 
     def build_system_prompt(self) -> str:
         """
@@ -173,8 +176,53 @@ class LLMQueryAgent:
                 error=last_error,
             )
             is_valid, last_error = self.validate_cypher(cypher)
-            if is_valid:
-                break
+            if not is_valid:
+                self._log_jsonl(
+                    self.validation_failures_path,
+                    {
+                        "question": natural_language_query,
+                        "sequence_id": sequence_id,
+                        "cypher": cypher,
+                        "stage": "validator",
+                        "error": last_error,
+                    },
+                )
+                continue
+
+            parameters = {"seq_id": sequence_id} if sequence_id is not None else {}
+            try:
+                results = self.execute_cypher(cypher, parameters=parameters)
+            except Exception as exc:
+                last_error = str(exc)
+                self._log_jsonl(
+                    self.validation_failures_path,
+                    {
+                        "question": natural_language_query,
+                        "sequence_id": sequence_id,
+                        "cypher": cypher,
+                        "stage": "neo4j_execute",
+                        "error": last_error,
+                    },
+                )
+                continue
+
+            if not results:
+                self._log_jsonl(
+                    self.zero_results_path,
+                    {
+                        "question": natural_language_query,
+                        "sequence_id": sequence_id,
+                        "cypher": cypher,
+                    },
+                )
+            answer = self.interpret_results(natural_language_query, cypher, results)
+            return {
+                "question": natural_language_query,
+                "cypher": cypher,
+                "results": results,
+                "answer": answer,
+                "error": None,
+            }
         else:
             return {
                 "question": natural_language_query,
@@ -183,17 +231,6 @@ class LLMQueryAgent:
                 "answer": invalid_query_response,
                 "error": last_error,
             }
-
-        parameters = {"seq_id": sequence_id} if sequence_id is not None else {}
-        results = self.execute_cypher(cypher, parameters=parameters)
-        answer = self.interpret_results(natural_language_query, cypher, results)
-        return {
-            "question": natural_language_query,
-            "cypher": cypher,
-            "results": results,
-            "answer": answer,
-            "error": None,
-        }
 
     def _build_generation_prompt(
         self,
@@ -209,6 +246,12 @@ class LLMQueryAgent:
             prompt_lines.append(f"Previous validation error: {error}")
             prompt_lines.append("Correct the Cypher and return only the fixed query.")
         return "\n".join(prompt_lines)
+
+    @staticmethod
+    def _log_jsonl(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as log_file:
+            log_file.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
 def _resolve_llm_base_url(config: dict[str, Any]) -> str | None:

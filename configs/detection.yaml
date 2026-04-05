@@ -12,6 +12,7 @@ vision:
   data_root: data/visdrone/VisDrone2019-MOT-val/sequences
   frame_skip: 1
   img_size: 1280
+  default_frame_rate: 30
 
 scene_defaults:
   altitude_fallback_m: 50.0

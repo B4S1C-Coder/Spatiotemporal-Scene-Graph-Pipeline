@@ -29,7 +29,7 @@ class SequencePaths:
     sequence_root: Path
     image_dir: Path
     frame_paths: tuple[Path, ...]
-    seqinfo_file: Path
+    seqinfo_file: Path | None
     gt_file: Path | None
 
 
@@ -140,7 +140,7 @@ class SequenceLoader:
         return Path(data_root)
 
     def _build_scene_payload(self) -> dict[str, Any]:
-        seqinfo = self._parse_seqinfo_file(self.paths.seqinfo_file)
+        seqinfo = self._load_sequence_metadata()
         sequence_meta = self._load_sequence_meta_lookup(
             self.config.get("sequence_meta_path"),
             self.data_root,
@@ -169,6 +169,14 @@ class SequenceLoader:
             "annotation_available": self.paths.gt_file is not None,
         }
 
+    def _load_sequence_metadata(self) -> dict[str, int]:
+        if self.paths.seqinfo_file is not None:
+            return self._parse_seqinfo_file(self.paths.seqinfo_file)
+        return self._infer_sequence_metadata_from_frames(
+            self.paths.frame_paths,
+            int(self.config["vision"]["default_frame_rate"]),
+        )
+
     @staticmethod
     def _parse_seqinfo_file(seqinfo_file: Path) -> dict[str, int]:
         parser = configparser.ConfigParser()
@@ -188,6 +196,22 @@ class SequenceLoader:
             "frameRate": sequence_section.getint("frameRate"),
             "imWidth": sequence_section.getint("imWidth"),
             "imHeight": sequence_section.getint("imHeight"),
+        }
+
+    @staticmethod
+    def _infer_sequence_metadata_from_frames(
+        frame_paths: tuple[Path, ...],
+        default_frame_rate: int,
+    ) -> dict[str, int]:
+        first_frame = cv2.imread(str(frame_paths[0]))
+        if first_frame is None:
+            raise ValueError(f"Could not load frame image for metadata inference: {frame_paths[0]}")
+        frame_height, frame_width = first_frame.shape[:2]
+        return {
+            "seqLength": len(frame_paths),
+            "frameRate": default_frame_rate,
+            "imWidth": frame_width,
+            "imHeight": frame_height,
         }
 
     @classmethod
@@ -277,13 +301,14 @@ class SequenceLoader:
     def _build_sequence_paths(cls, sequence_id: str, data_root: Path) -> SequencePaths:
         sequence_root = cls._find_sequence_root(sequence_id, data_root)
         image_dir = sequence_root / "img1"
+        if not image_dir.is_dir():
+            image_dir = sequence_root
+
         seqinfo_file = sequence_root / "seqinfo.ini"
         gt_file = sequence_root / "gt" / "gt.txt"
 
         if not image_dir.is_dir():
             raise FileNotFoundError(f"Missing frame directory: {image_dir}")
-        if not seqinfo_file.is_file():
-            raise FileNotFoundError(f"Missing seqinfo.ini: {seqinfo_file}")
 
         frame_paths = tuple(sorted(image_dir.glob("*.jpg")))
         if not frame_paths:
@@ -293,7 +318,7 @@ class SequenceLoader:
             sequence_root=sequence_root,
             image_dir=image_dir,
             frame_paths=frame_paths,
-            seqinfo_file=seqinfo_file,
+            seqinfo_file=seqinfo_file if seqinfo_file.is_file() else None,
             gt_file=gt_file if gt_file.is_file() else None,
         )
 

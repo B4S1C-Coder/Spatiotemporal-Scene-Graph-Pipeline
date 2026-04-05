@@ -36,6 +36,23 @@ def create_sequence(root: Path, sequence_id: str, with_gt: bool = True) -> Path:
     return sequence_root
 
 
+def create_flat_sequence(root: Path, sequence_id: str, with_gt: bool = False) -> Path:
+    """Create a flat VisDrone-style sequence directory without img1/seqinfo.ini."""
+    sequence_root = root / sequence_id
+    sequence_root.mkdir(parents=True, exist_ok=True)
+    first_frame = np.full((480, 640, 3), 32, dtype=np.uint8)
+    second_frame = np.full((480, 640, 3), 96, dtype=np.uint8)
+    cv2.imwrite(str(sequence_root / "0000001.jpg"), first_frame)
+    cv2.imwrite(str(sequence_root / "0000002.jpg"), second_frame)
+
+    if with_gt:
+        gt_dir = sequence_root / "gt"
+        gt_dir.mkdir(parents=True, exist_ok=True)
+        (gt_dir / "gt.txt").write_text("1,1,10,10,20,20,1,1,0,0\n", encoding="utf-8")
+
+    return sequence_root
+
+
 def write_detection_config(config_path: Path, data_root: Path) -> None:
     """Write a minimal detection config for SequenceLoader tests."""
     config_path.write_text(
@@ -53,6 +70,7 @@ def write_detection_config(config_path: Path, data_root: Path) -> None:
               data_root: {data_root}
               frame_skip: 1
               img_size: 1280
+              default_frame_rate: 30
             scene_defaults:
               altitude_fallback_m: 50.0
               weather: clear
@@ -121,11 +139,11 @@ def test_sequence_loader_requires_data_root_when_override_clears_it() -> None:
 
 
 def test_sequence_loader_requires_frame_directory_and_seqinfo(tmp_path: Path) -> None:
-    """Missing required VisDrone files should raise clear filesystem errors."""
+    """Missing frame images should raise clear filesystem errors."""
     sequence_root = tmp_path / "sequences" / "uav0000073_00600_v"
     sequence_root.mkdir(parents=True, exist_ok=True)
 
-    with pytest.raises(FileNotFoundError, match="frame directory"):
+    with pytest.raises(FileNotFoundError, match="No frame images found"):
         SequenceLoader(
             sequence_id="uav0000073_00600_v",
             config={"vision": {"data_root": str(tmp_path / "sequences")}},
@@ -214,6 +232,29 @@ def test_scene_payload_rejects_invalid_seqinfo(tmp_path: Path) -> None:
             sequence_id="uav0000149_00000_v",
             config={"vision": {"data_root": str(sequences_root)}},
         )
+
+
+def test_sequence_loader_supports_flat_sequence_layout_without_seqinfo(tmp_path: Path) -> None:
+    """The loader should accept flat frame layouts and infer missing metadata."""
+    sequences_root = tmp_path / "VisDrone2019-MOT-val" / "sequences"
+    sequence_root = create_flat_sequence(sequences_root, "uav0000086_00000_v")
+
+    loader = SequenceLoader(
+        sequence_id="uav0000086_00000_v",
+        config={"vision": {"data_root": str(sequences_root), "default_frame_rate": 24}},
+    )
+
+    paths = loader.get_sequence_paths()
+    scene_payload = loader.get_scene_payload()
+
+    assert paths.sequence_root == sequence_root
+    assert paths.image_dir == sequence_root
+    assert paths.seqinfo_file is None
+    assert loader.get_frame_ids() == [0, 1]
+    assert scene_payload["total_frames"] == 2
+    assert scene_payload["frame_rate"] == 24
+    assert scene_payload["frame_width"] == 640
+    assert scene_payload["frame_height"] == 480
 
 
 def test_iter_frames_yields_frame_packets_with_scene_payload_on_first_frame(tmp_path: Path) -> None:
@@ -324,6 +365,7 @@ def test_sequence_loader_reads_defaults_from_detection_yaml(tmp_path: Path, monk
               data_root: {sequences_root}
               frame_skip: 2
               img_size: 320
+              default_frame_rate: 30
             scene_defaults:
               altitude_fallback_m: 77.0
               weather: overcast

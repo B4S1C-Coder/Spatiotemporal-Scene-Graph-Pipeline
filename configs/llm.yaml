@@ -1,13 +1,16 @@
 llm:
-  model: gpt-4o-mini
+  model: qwen-3.5_4B_Q4_K_M
   max_retries: 3
   default_limit: 50
   no_data_response: No data found in the graph for this query.
   invalid_query_response: Could not generate a valid query. Please rephrase.
   connection:
-    base_url: null
+    base_url: http://localhost:8080/v1
     api_key: null
     api_key_env: OPENAI_API_KEY
+logging:
+  validation_failures_path: logs/validation_failures.jsonl
+  zero_results_path: logs/llm_zero_results.jsonl
 prompt:
   system_preamble: |
     You are a Cypher query generator for a spatiotemporal scene graph database (Neo4j).
@@ -58,6 +61,7 @@ prompt:
     7. Return human-readable fields. Do not return internal node IDs.
     8. LIMIT 50 by default unless the user asks for all results.
     9. NEAR_MISS severity: "critical" means distance < 0.03, "warning" means 0.03–0.05.
+    10. Do not use SQL syntax such as GROUP BY or HAVING. Use Cypher WITH/RETURN aggregation instead.
 
     Generate ONLY valid Cypher. No explanation, no markdown, no code fences.
   grounding_suffix: |

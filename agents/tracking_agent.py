@@ -31,7 +31,9 @@ def load_bytetrack_config(
     Returns:
         Tracker configuration dictionary.
     """
-    return load_yaml_config(config_path, overrides=config)
+    tracker_config = load_yaml_config(config_path, overrides=config)
+    tracker_config.setdefault("fuse_score", True)
+    return tracker_config
 
 
 class TrackingAgent:

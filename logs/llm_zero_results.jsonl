@@ -1,0 +1,1 @@
+{"cypher": "MATCH (o:Object {class: 'person', sequence_id: $seq_id})-[r:IN_ZONE]->(z:Zone)\nWHERE r.is_active = true\nRETURN z.zone_id, count(o) AS person_count\nORDER BY person_count DESC\nLIMIT 50", "question": "How many person are in the zone?", "sequence_id": "uav0000086_00000_v"}

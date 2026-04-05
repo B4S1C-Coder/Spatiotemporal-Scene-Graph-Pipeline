@@ -19,6 +19,10 @@ WRITE_KEYWORDS = (
     "LOAD CSV",
     "CALL DBMS",
 )
+DISALLOWED_SQL_PATTERNS = (
+    "GROUP BY",
+    "HAVING ",
+)
 READ_PREFIXES = ("MATCH", "OPTIONAL MATCH", "WITH", "UNWIND", "CALL")
 
 
@@ -38,6 +42,8 @@ def validate_cypher_syntax(cypher: str) -> tuple[bool, str | None]:
     upper_cypher = normalized.upper()
     if any(keyword in upper_cypher for keyword in WRITE_KEYWORDS):
         return False, "Cypher query must be read-only."
+    if any(pattern in upper_cypher for pattern in DISALLOWED_SQL_PATTERNS):
+        return False, "Cypher query contains SQL-only syntax unsupported by Neo4j."
     if not upper_cypher.startswith(READ_PREFIXES):
         return False, "Cypher query must start with a read clause."
     if "RETURN " not in upper_cypher:

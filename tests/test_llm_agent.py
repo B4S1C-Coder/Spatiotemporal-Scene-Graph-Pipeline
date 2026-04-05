@@ -74,9 +74,10 @@ class RecordingOpenAIFactory:
 
 def write_llm_config(config_path: Path) -> None:
     """Write a minimal LLM config for tests."""
+    log_dir = config_path.parent / "logs"
     config_path.write_text(
         textwrap.dedent(
-            """
+            f"""
             llm:
               model: gpt-4o-mini
               max_retries: 3
@@ -87,6 +88,9 @@ def write_llm_config(config_path: Path) -> None:
                 base_url: null
                 api_key: null
                 api_key_env: OPENAI_API_KEY
+            logging:
+              validation_failures_path: {log_dir / "validation_failures.jsonl"}
+              zero_results_path: {log_dir / "llm_zero_results.jsonl"}
             prompt:
               system_preamble: |
                 You are a Cypher query generator.
@@ -197,6 +201,22 @@ def test_validate_cypher_rejects_write_queries(tmp_path: Path) -> None:
     assert error == "Cypher query must be read-only."
 
 
+def test_validate_cypher_rejects_group_by_syntax(tmp_path: Path) -> None:
+    """The validator should reject SQL-only GROUP BY syntax."""
+    config_path = tmp_path / "llm.yaml"
+    write_llm_config(config_path)
+    agent = LLMQueryAgent(
+        neo4j_client=FakeNeo4jClient(),
+        llm_client=FakeLLMClient(["RETURN 1"]),
+        config_path=config_path,
+    )
+
+    is_valid, error = agent.validate_cypher("MATCH (z:Zone) RETURN z.zone_id, count(*) GROUP BY z.zone_id")
+
+    assert is_valid is False
+    assert error == "Cypher query contains SQL-only syntax unsupported by Neo4j."
+
+
 def test_query_retries_invalid_cypher_then_executes_valid_query(tmp_path: Path) -> None:
     """The query loop should retry after validation failures and then execute Neo4j."""
     config_path = tmp_path / "llm.yaml"
@@ -246,6 +266,8 @@ def test_query_returns_invalid_query_response_when_retries_exhausted(tmp_path: P
     assert result["results"] == []
     assert result["error"] == "Cypher query must be read-only."
     assert neo4j_client.calls == []
+    validation_log = (tmp_path / "logs" / "validation_failures.jsonl").read_text(encoding="utf-8")
+    assert "validator" in validation_log
 
 
 def test_interpret_results_returns_no_data_message_for_empty_results(tmp_path: Path) -> None:
@@ -267,6 +289,77 @@ def test_interpret_results_returns_no_data_message_for_empty_results(tmp_path: P
 
     assert answer == "No data found in the graph for this query."
     assert llm_client.calls == []
+
+
+def test_query_logs_zero_results(tmp_path: Path) -> None:
+    """Empty result sets should be logged to the zero-results file."""
+    config_path = tmp_path / "llm.yaml"
+    write_llm_config(config_path)
+    llm_client = FakeLLMClient(["MATCH (n) RETURN n"])
+    agent = LLMQueryAgent(
+        neo4j_client=FakeNeo4jClient(results=[]),
+        llm_client=llm_client,
+        config_path=config_path,
+    )
+
+    result = agent.query("What happened?", sequence_id="seq_a")
+
+    assert result["answer"] == "No data found in the graph for this query."
+    zero_results_log = (tmp_path / "logs" / "llm_zero_results.jsonl").read_text(encoding="utf-8")
+    assert "What happened?" in zero_results_log
+    assert '"sequence_id": "seq_a"' in zero_results_log
+
+
+class FailingNeo4jClient(FakeNeo4jClient):
+    """Neo4j client stand-in that can fail before succeeding."""
+
+    def __init__(self, side_effects: list[object]) -> None:
+        super().__init__(results=[])
+        self.side_effects = list(side_effects)
+
+    def execute_query(
+        self,
+        query: str,
+        parameters: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        self.calls.append({"query": query, "parameters": parameters or {}})
+        effect = self.side_effects.pop(0)
+        if isinstance(effect, Exception):
+            raise effect
+        return effect
+
+
+def test_query_retries_on_neo4j_execution_error_and_logs_failure(tmp_path: Path) -> None:
+    """Neo4j syntax failures should feed back into generation retries."""
+    config_path = tmp_path / "llm.yaml"
+    write_llm_config(config_path)
+    llm_client = FakeLLMClient(
+        [
+            "MATCH (z:Zone) RETURN z.zone_id AS zone_id ORDER z.zone_id",
+            "MATCH (z:Zone) RETURN z.zone_id AS zone_id, count(*) AS count",
+            "Two zones returned.",
+        ]
+    )
+    neo4j_client = FailingNeo4jClient(
+        [
+            RuntimeError("Neo.ClientError.Statement.SyntaxError: invalid ORDER clause"),
+            [{"zone_id": "cell_0_0", "count": 2}, {"zone_id": "cell_0_1", "count": 1}],
+        ]
+    )
+    agent = LLMQueryAgent(
+        neo4j_client=neo4j_client,
+        llm_client=llm_client,
+        config_path=config_path,
+    )
+
+    result = agent.query("how many person are there in zone?", sequence_id="seq_a")
+
+    assert result["answer"] == "Two zones returned."
+    assert result["cypher"] == "MATCH (z:Zone) RETURN z.zone_id AS zone_id, count(*) AS count"
+    validation_log = (tmp_path / "logs" / "validation_failures.jsonl").read_text(encoding="utf-8")
+    assert "neo4j_execute" in validation_log
+    assert "invalid ORDER clause" in validation_log
+    assert "Previous validation error: Neo.ClientError.Statement.SyntaxError: invalid ORDER clause" in llm_client.calls[1]["user_prompt"]
 
 
 def test_interpret_results_uses_llm_for_non_empty_results(tmp_path: Path) -> None:

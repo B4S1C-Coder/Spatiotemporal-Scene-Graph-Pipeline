@@ -50,6 +50,7 @@ def write_bytetrack_config(config_path: Path) -> None:
             new_track_thresh: 0.6
             track_buffer: 30
             match_thresh: 0.8
+            fuse_score: true
             """
         ).strip()
         + "\n",
@@ -67,6 +68,7 @@ def test_load_bytetrack_config_reads_yaml_values(tmp_path: Path) -> None:
     assert tracker_config["tracker_type"] == "bytetrack"
     assert tracker_config["track_high_thresh"] == 0.5
     assert tracker_config["track_buffer"] == 30
+    assert tracker_config["fuse_score"] is True
 
 
 def test_tracking_agent_initializes_bytetrack_from_yaml_config(tmp_path: Path) -> None:
@@ -88,6 +90,7 @@ def test_tracking_agent_initializes_bytetrack_from_yaml_config(tmp_path: Path) -
     assert agent.tracker.args.new_track_thresh == 0.6
     assert agent.tracker.args.track_buffer == 30
     assert agent.tracker.args.match_thresh == 0.8
+    assert agent.tracker.args.fuse_score is True
 
 
 def test_tracking_agent_applies_runtime_config_overrides(tmp_path: Path) -> None:
@@ -105,6 +108,7 @@ def test_tracking_agent_applies_runtime_config_overrides(tmp_path: Path) -> None
     assert agent.config["match_thresh"] == 0.72
     assert agent.tracker.args.track_buffer == 45
     assert agent.tracker.args.match_thresh == 0.72
+    assert agent.tracker.args.fuse_score is True
 
 
 def test_tracking_agent_converts_detections_into_tracked_output(tmp_path: Path) -> None:
