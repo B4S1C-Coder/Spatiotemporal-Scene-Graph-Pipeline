@@ -23,6 +23,7 @@ from openai import OpenAI
 
 PERSON_CLASS_ALIASES = ("person", "pedestrian", "people")
 PERSON_QUERY_TERMS = ("person", "people", "pedestrian", "pedestrians", "man", "men", "woman", "women")
+CLASS_QUERY_TERMS = ("class", "classes", "category", "categories", "type", "types")
 
 
 class LLMClientProtocol(Protocol):
@@ -213,6 +214,19 @@ class LLMQueryAgent:
                 )
                 continue
 
+            fallback_cypher = build_taxonomy_fallback_cypher(
+                cypher=cypher,
+                natural_language_query=natural_language_query,
+                sequence_id=sequence_id,
+            )
+            if not results and fallback_cypher is not None and fallback_cypher != cypher:
+                try:
+                    results = self.execute_cypher(fallback_cypher, parameters=parameters)
+                    if results:
+                        cypher = fallback_cypher
+                except Exception:
+                    pass
+
             if not results:
                 self._log_jsonl(
                     self.zero_results_path,
@@ -322,6 +336,40 @@ def _expand_person_class_in_clause(cypher: str) -> str:
         return f"class IN [{alias_list}]"
 
     return pattern.sub(_replacement, cypher)
+
+
+def build_taxonomy_fallback_cypher(
+    *,
+    cypher: str,
+    natural_language_query: str,
+    sequence_id: str | None,
+) -> str | None:
+    """
+    Build a direct `o.class` fallback for common class inventory/count queries
+    when taxonomy edges are absent on older ingested sequences.
+    """
+    if "BELONGS_TO_CLASS" not in cypher:
+        return None
+
+    lowered_question = natural_language_query.lower()
+    if not any(term in lowered_question for term in CLASS_QUERY_TERMS):
+        return None
+
+    sequence_filter = " {sequence_id: $seq_id}" if sequence_id is not None else ""
+    if "count(" in cypher.lower():
+        return (
+            f"MATCH (o:Object{sequence_filter}) "
+            "RETURN o.class AS object_class, count(o) AS object_count "
+            "ORDER BY object_count DESC "
+            "LIMIT 50"
+        )
+
+    return (
+        f"MATCH (o:Object{sequence_filter}) "
+        "RETURN DISTINCT o.class AS object_class "
+        "ORDER BY object_class "
+        "LIMIT 50"
+    )
 
 
 def run_query_cli(

@@ -9,6 +9,7 @@ from agents.llm_agent import (
     LLMQueryAgent,
     OpenAILLMClient,
     apply_query_alias_expansion,
+    build_taxonomy_fallback_cypher,
     load_llm_config,
     run_query_cli,
 )
@@ -265,6 +266,49 @@ def test_apply_query_alias_expansion_leaves_non_person_queries_unchanged() -> No
     assert expanded == cypher
 
 
+def test_build_taxonomy_fallback_cypher_for_class_inventory_query() -> None:
+    """Taxonomy-only class inventory queries should have an `o.class` fallback."""
+    cypher = (
+        "MATCH (o:Object {sequence_id: $seq_id})-[:BELONGS_TO_CLASS]->(c:ObjectClass) "
+        "RETURN c.name AS object_class LIMIT 50"
+    )
+
+    fallback = build_taxonomy_fallback_cypher(
+        cypher=cypher,
+        natural_language_query="what object classes appear in this sequence?",
+        sequence_id="seq_a",
+    )
+
+    assert fallback == (
+        "MATCH (o:Object {sequence_id: $seq_id}) "
+        "RETURN DISTINCT o.class AS object_class "
+        "ORDER BY object_class "
+        "LIMIT 50"
+    )
+
+
+def test_build_taxonomy_fallback_cypher_for_class_count_query() -> None:
+    """Taxonomy-only class count queries should have an `o.class` aggregation fallback."""
+    cypher = (
+        "MATCH (o:Object {sequence_id: $seq_id})-[:BELONGS_TO_CLASS]->(c:ObjectClass) "
+        "RETURN c.name AS object_class, count(o) AS object_count "
+        "ORDER BY object_count DESC LIMIT 50"
+    )
+
+    fallback = build_taxonomy_fallback_cypher(
+        cypher=cypher,
+        natural_language_query="show object counts by class",
+        sequence_id="seq_a",
+    )
+
+    assert fallback == (
+        "MATCH (o:Object {sequence_id: $seq_id}) "
+        "RETURN o.class AS object_class, count(o) AS object_count "
+        "ORDER BY object_count DESC "
+        "LIMIT 50"
+    )
+
+
 def test_validate_cypher_rejects_is_active_reference(tmp_path: Path) -> None:
     """The validator should reject unsupported is_active relationship predicates."""
     config_path = tmp_path / "llm.yaml"
@@ -397,6 +441,22 @@ class FailingNeo4jClient(FakeNeo4jClient):
         return effect
 
 
+class SequencedNeo4jClient(FakeNeo4jClient):
+    """Neo4j client stand-in that returns a predefined result sequence."""
+
+    def __init__(self, results_sequence: list[list[dict[str, object]]]) -> None:
+        super().__init__(results=[])
+        self.results_sequence = list(results_sequence)
+
+    def execute_query(
+        self,
+        query: str,
+        parameters: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        self.calls.append({"query": query, "parameters": parameters or {}})
+        return self.results_sequence.pop(0)
+
+
 def test_query_retries_on_neo4j_execution_error_and_logs_failure(tmp_path: Path) -> None:
     """Neo4j syntax failures should feed back into generation retries."""
     config_path = tmp_path / "llm.yaml"
@@ -428,6 +488,40 @@ def test_query_retries_on_neo4j_execution_error_and_logs_failure(tmp_path: Path)
     assert "neo4j_execute" in validation_log
     assert "invalid ORDER clause" in validation_log
     assert "Previous validation error: Neo.ClientError.Statement.SyntaxError: invalid ORDER clause" in llm_client.calls[1]["user_prompt"]
+
+
+def test_query_uses_taxonomy_fallback_when_belongs_to_class_returns_zero_rows(tmp_path: Path) -> None:
+    """Class inventory/count questions should fall back to direct `o.class` queries on legacy sequences."""
+    config_path = tmp_path / "llm.yaml"
+    write_llm_config(config_path)
+    llm_client = FakeLLMClient(
+        [
+            "MATCH (o:Object {sequence_id: $seq_id})-[:BELONGS_TO_CLASS]->(c:ObjectClass) RETURN c.name AS object_class LIMIT 50",
+            "Classes are car and person.",
+        ]
+    )
+    neo4j_client = SequencedNeo4jClient(
+        [
+            [],
+            [{"object_class": "car"}, {"object_class": "person"}],
+        ]
+    )
+    agent = LLMQueryAgent(
+        neo4j_client=neo4j_client,
+        llm_client=llm_client,
+        config_path=config_path,
+    )
+
+    result = agent.query("what object classes appear in this sequence?", sequence_id="seq_a")
+
+    assert result["cypher"] == (
+        "MATCH (o:Object {sequence_id: $seq_id}) "
+        "RETURN DISTINCT o.class AS object_class "
+        "ORDER BY object_class "
+        "LIMIT 50"
+    )
+    assert result["results"] == [{"object_class": "car"}, {"object_class": "person"}]
+    assert len(neo4j_client.calls) == 2
 
 
 def test_interpret_results_uses_llm_for_non_empty_results(tmp_path: Path) -> None:

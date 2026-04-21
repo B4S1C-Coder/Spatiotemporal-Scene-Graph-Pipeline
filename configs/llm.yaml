@@ -54,7 +54,7 @@ prompt:
     RULES:
     1. Always filter by sequence_id unless the user explicitly asks for cross-sequence queries.
     2. Use OPTIONAL MATCH for relationships that may not exist on all matched nodes.
-    3. For class-group queries use BELONGS_TO_CLASS.
+    3. For class-group queries use BELONGS_TO_CLASS when those edges are present, but for basic class inventory or class-count queries you may use `o.class` directly because older ingested sequences may not have taxonomy edges.
     4. When asking about object history, traverse APPEARED_IN ordered by frame_id.
     5. For re-identified objects, use canonical_id to group tracks.
     6. CURRENT IMPLEMENTATION NOTE: IN_ZONE only has frame_id and density_contribution. Do not use r.is_active, duration_frames, or entry_frame on IN_ZONE.
