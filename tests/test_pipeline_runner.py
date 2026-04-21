@@ -237,6 +237,31 @@ class FakeGraphAgent:
         self.flush_count += 1
 
 
+class FakeRSSMonitor:
+    """RSS monitor stand-in that returns predefined values."""
+
+    def __init__(self, values: list[float]) -> None:
+        self.values = list(values)
+        self.calls = 0
+
+    def __call__(self) -> float:
+        self.calls += 1
+        if self.values:
+            return self.values.pop(0)
+        return 0.0
+
+
+class FakeGarbageCollector:
+    """GC stand-in that counts calls."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self) -> int:
+        self.calls += 1
+        return 0
+
+
 def write_detection_config(config_path: Path) -> None:
     """Write a minimal detection config for runner tests."""
     config_path.write_text(
@@ -260,6 +285,10 @@ def write_detection_config(config_path: Path) -> None:
               weather_source: default
               scene_type: urban
               time_of_day: daytime
+            runtime:
+              max_process_rss_mb: 3072
+              progress_log_every_frames: 50
+              gc_every_frames: 25
             """
         ).strip()
         + "\n",
@@ -277,6 +306,8 @@ def build_runner(
     config_path: Path,
     batch_writer: FakeBatchWriter | None = None,
     post_processor: FakePostProcessor | None = None,
+    current_rss_mb_fn: Any | None = None,
+    gc_collect_fn: Any | None = None,
 ) -> tuple[PipelineRunner, dict[str, Any]]:
     """Build a runner with fake agent dependencies for integration tests."""
     dependencies = {
@@ -296,6 +327,8 @@ def build_runner(
         event_agent=dependencies["event_agent"],
         batch_writer=dependencies["batch_writer"],
         post_processor=dependencies["post_processor"],
+        current_rss_mb_fn=current_rss_mb_fn,
+        gc_collect_fn=gc_collect_fn or (lambda: 0),
     )
     return runner, dependencies
 
@@ -426,6 +459,68 @@ def test_pipeline_runner_processes_multiple_sequences_and_flushes_each_one(tmp_p
     assert batch_writer.flush_count == 2
 
 
+def test_pipeline_runner_sequence_summary_avoids_retaining_frame_outputs(tmp_path: Path) -> None:
+    """The summary path should count frames without retaining per-frame results."""
+    reset_fake_loader()
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path)
+    runner, dependencies = build_runner(config_path)
+
+    summary = runner.run_sequence_summary("seq_summary")
+
+    assert summary["sequence_id"] == "seq_summary"
+    assert summary["frame_count"] == 2
+    assert summary["retained_frame_outputs"] is False
+    assert dependencies["batch_writer"].flush_count == 1
+
+
+def test_run_pipeline_cli_uses_summary_path_for_frame_counts(tmp_path: Path) -> None:
+    """CLI execution should use the non-retaining summary path."""
+    reset_fake_loader()
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path)
+    runner, _ = build_runner(config_path)
+
+    summary = run_pipeline_cli(["seq_cli"], runner=runner)
+
+    assert summary["frame_counts"] == {"seq_cli": 2}
+    assert summary["sequence_summaries"]["seq_cli"]["retained_frame_outputs"] is False
+
+
+def test_pipeline_runner_raises_before_exceeding_memory_cap(tmp_path: Path) -> None:
+    """The runner should abort safely when RSS remains above the configured cap after GC."""
+    reset_fake_loader()
+    config_path = tmp_path / "detection.yaml"
+    write_detection_config(config_path)
+    rss_monitor = FakeRSSMonitor([100.0, 4000.0, 4000.0])
+    gc_collector = FakeGarbageCollector()
+    batch_writer = FakeBatchWriter()
+    runner, _ = build_runner(
+        config_path,
+        batch_writer=batch_writer,
+        current_rss_mb_fn=rss_monitor,
+        gc_collect_fn=gc_collector,
+    )
+
+    try:
+        runner.max_process_rss_mb = 3072.0
+        runner.progress_log_every_frames = 1
+        runner.gc_every_frames = 0
+        try:
+            runner.run_sequence_summary("seq_memory")
+            raised = False
+        except MemoryError as exc:
+            raised = True
+            assert "seq_memory" in str(exc)
+            assert "3072.0 MiB" in str(exc)
+    finally:
+        runner.close()
+
+    assert raised is True
+    assert batch_writer.flush_count >= 1
+    assert gc_collector.calls >= 1
+
+
 def test_pipeline_runner_runs_post_processor_when_enabled(tmp_path: Path) -> None:
     """Sequence-final post-processing should run only when explicitly enabled."""
     reset_fake_loader()
@@ -460,9 +555,9 @@ def test_run_pipeline_cli_returns_compact_summary(tmp_path: Path) -> None:
         runner=runner,
     )
 
-    assert summary == {
-        "sequence_ids": ["seq_a", "seq_b"],
-        "frame_counts": {"seq_a": 2, "seq_b": 2},
-        "post_process_enabled": False,
-        "last_postprocess_summary": None,
-    }
+    assert summary["sequence_ids"] == ["seq_a", "seq_b"]
+    assert summary["frame_counts"] == {"seq_a": 2, "seq_b": 2}
+    assert summary["post_process_enabled"] is False
+    assert summary["last_postprocess_summary"] is None
+    assert summary["sequence_summaries"]["seq_a"]["retained_frame_outputs"] is False
+    assert summary["sequence_summaries"]["seq_b"]["frame_count"] == 2

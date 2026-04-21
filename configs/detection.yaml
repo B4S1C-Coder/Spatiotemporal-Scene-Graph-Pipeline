@@ -20,3 +20,8 @@ scene_defaults:
   weather_source: default
   scene_type: urban
   time_of_day: daytime
+
+runtime:
+  max_process_rss_mb: 3072
+  progress_log_every_frames: 50
+  gc_every_frames: 25
