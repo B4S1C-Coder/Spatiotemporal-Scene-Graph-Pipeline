@@ -71,6 +71,7 @@ def test_graph_agent_buffers_and_flushes_frame_batches(tmp_path: Path) -> None:
         sequence_id="uav0000009_04358_v",
         frame_id=12,
         scene_payload=build_scene_payload(),
+        zone_stats={"cell_1_1": {"last_density": 1.0, "vehicle_ratio": 1.0, "pedestrian_ratio": 0.0}},
     )
     flushed_second = agent.add_frame_data(
         object_states=[{**build_object_state(), "frame_id": 13}],
@@ -88,6 +89,10 @@ def test_graph_agent_buffers_and_flushes_frame_batches(tmp_path: Path) -> None:
     assert any("MERGE (z:Zone" in query for query in queries)
     assert any("MERGE (o)-[r:IN_ZONE]" in query for query in queries)
     assert any("MERGE (o)-[r:APPEARED_IN]" in query for query in queries)
+    assert any("MERGE (o)-[:DETECTED_IN]->(s)" in query for query in queries)
+    assert any("MERGE (o)-[:BELONGS_TO_CLASS]->(c)" in query for query in queries)
+    assert any("MERGE (prev)-[:PRECEDES]->(curr)" in query for query in queries)
+    assert any("SET z.last_density" in query for query in queries)
 
 
 def test_graph_agent_writes_event_statements(tmp_path: Path) -> None:
@@ -121,6 +126,57 @@ def test_graph_agent_writes_event_statements(tmp_path: Path) -> None:
     assert any("MERGE (e)-[:OCCURRED_IN]" in query for query in queries)
     assert any("role: 'primary'" in query for query in queries)
     assert any("role: 'secondary'" in query for query in queries)
+    assert any("MERGE (a)-[r:NEAR_MISS]->(b)" in query for query in queries)
+
+
+def test_graph_agent_materializes_semantic_edges_for_supported_event_types(tmp_path: Path) -> None:
+    """GraphAgent should write semantic relationships for event types with graph edges."""
+    client = FakeNeo4jClient()
+    agent = GraphAgent(
+        neo4j_client=client,
+        config={"batch": {"frame_batch_size": 1, "retry_buffer_path": str(tmp_path / "failures.jsonl")}},
+    )
+
+    agent.add_frame_data(
+        object_states=[build_object_state()],
+        sequence_id="uav0000009_04358_v",
+        frame_id=12,
+        events=[
+            {
+                "event_type": "CONVOY",
+                "frame_id": 12,
+                "sequence_id": "uav0000009_04358_v",
+                "primary_track_id": 7,
+                "secondary_track_id": 11,
+                "confidence": 1.0,
+                "metadata": {"distance": 0.08},
+            },
+            {
+                "event_type": "LOITER",
+                "frame_id": 12,
+                "sequence_id": "uav0000009_04358_v",
+                "primary_track_id": 7,
+                "secondary_track_id": None,
+                "confidence": 1.0,
+                "metadata": {"zone": "cell_1_1"},
+            },
+            {
+                "event_type": "JAYWALKING",
+                "frame_id": 12,
+                "sequence_id": "uav0000009_04358_v",
+                "primary_track_id": 7,
+                "secondary_track_id": None,
+                "confidence": 0.9,
+                "metadata": {"zone": "cell_1_1", "vehicle_ratio": 0.9},
+            },
+        ],
+    )
+
+    queries = [statement.query for statement in client.executed_batches[0]]
+    assert any("MERGE (a)-[r:CONVOY_WITH]->(b)" in query for query in queries)
+    assert any("MERGE (b)-[r:CONVOY_WITH]->(a)" in query for query in queries)
+    assert any("MERGE (o)-[r:LOITERING_IN]->(z)" in query for query in queries)
+    assert any("MERGE (o)-[r:JAYWALKING_IN]->(z)" in query for query in queries)
 
 
 def test_graph_agent_buffers_failed_batches_to_jsonl(tmp_path: Path) -> None:

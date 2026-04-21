@@ -157,6 +157,7 @@ class PipelineRunner:
             frame_id=int(frame_packet["frame_id"]),
             events=events,
             scene_payload=frame_packet.get("scene_payload"),
+            zone_stats=self.event_agent.get_zone_stats_snapshot(),
         )
         return {
             "frame_packet": frame_packet,

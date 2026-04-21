@@ -25,6 +25,7 @@ class BatchWriter:
         frame_id: int,
         events: list[dict[str, Any]] | None = None,
         scene_payload: dict[str, Any] | None = None,
+        zone_stats: dict[str, dict[str, float]] | None = None,
     ) -> bool:
         """
         Buffer one frame worth of graph data.
@@ -35,6 +36,7 @@ class BatchWriter:
             frame_id: Current frame ID.
             events: Optional event records for the frame.
             scene_payload: Optional scene metadata for first-frame setup.
+            zone_stats: Optional per-zone metrics for the frame.
 
         Returns:
             Whether the underlying graph agent flushed during this call.
@@ -45,6 +47,7 @@ class BatchWriter:
             frame_id=frame_id,
             events=events,
             scene_payload=scene_payload,
+            zone_stats=zone_stats,
         )
 
     def flush(self) -> None:

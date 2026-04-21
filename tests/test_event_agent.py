@@ -186,3 +186,22 @@ def test_event_agent_updates_zone_class_stats_each_frame(tmp_path: Path) -> None
 
     assert agent.zone_class_stats["cell_0_0"]["pedestrian_ratio"] == 1 / 3
     assert agent.zone_class_stats["cell_0_0"]["vehicle_ratio"] == 2 / 3
+    assert agent.zone_class_stats["cell_0_0"]["last_density"] == 3.0
+
+
+def test_event_agent_returns_zone_stats_snapshot(tmp_path: Path) -> None:
+    """The snapshot helper should expose the latest per-zone metrics."""
+    config_path = tmp_path / "event.yaml"
+    write_event_config(config_path)
+    agent = EventAgent(config_path=config_path)
+    tracks = {
+        1: build_track(1, "pedestrian", [0.1, 0.1], "cell_0_0"),
+        2: build_track(2, "car", [0.15, 0.1], "cell_0_0"),
+    }
+
+    agent.process_tracks(tracks, frame_id=1, sequence_id="seq-1")
+    snapshot = agent.get_zone_stats_snapshot()
+
+    assert snapshot["cell_0_0"]["last_density"] == 2.0
+    assert snapshot["cell_0_0"]["pedestrian_count"] == 1.0
+    assert snapshot["cell_0_0"]["vehicle_count"] == 1.0

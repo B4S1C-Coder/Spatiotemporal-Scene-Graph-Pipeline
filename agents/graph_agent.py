@@ -40,6 +40,7 @@ class GraphAgent:
         self.pending_statements: list[GraphStatement] = []
         self.pending_frame_count = 0
         self.seen_scenes: set[str] = set()
+        self.last_frame_by_sequence: dict[str, int] = {}
 
     def add_frame_data(
         self,
@@ -48,6 +49,7 @@ class GraphAgent:
         frame_id: int,
         events: list[dict[str, Any]] | None = None,
         scene_payload: dict[str, Any] | None = None,
+        zone_stats: dict[str, dict[str, float]] | None = None,
     ) -> bool:
         """
         Buffer graph writes for one frame and flush when the batch is full.
@@ -58,6 +60,7 @@ class GraphAgent:
             frame_id: Current frame ID.
             events: Optional event records.
             scene_payload: Optional scene metadata for first-frame setup.
+            zone_stats: Optional per-zone metrics for the frame.
 
         Returns:
             True when a flush happened, otherwise False.
@@ -66,8 +69,13 @@ class GraphAgent:
             self.pending_statements.extend(self._build_scene_statements(scene_payload))
             self.seen_scenes.add(sequence_id)
 
+        self.pending_statements.extend(self._build_frame_statements(sequence_id, frame_id))
+
         for object_state in object_states:
             self.pending_statements.extend(self._build_object_statements(object_state, sequence_id))
+
+        if zone_stats:
+            self.pending_statements.extend(self._build_zone_statements(zone_stats, sequence_id, frame_id))
 
         for event in events or []:
             self.pending_statements.extend(self._build_event_statements(event))
@@ -128,6 +136,34 @@ class GraphAgent:
             )
         ]
 
+    def _build_frame_statements(self, sequence_id: str, frame_id: int) -> list[GraphStatement]:
+        statements = [
+            GraphStatement(
+                query=(
+                    "MERGE (f:Frame {frame_id: $frame_id, sequence_id: $seq_id})"
+                ),
+                parameters={"frame_id": frame_id, "seq_id": sequence_id},
+            )
+        ]
+        previous_frame_id = self.last_frame_by_sequence.get(sequence_id)
+        if previous_frame_id is not None and previous_frame_id != frame_id:
+            statements.append(
+                GraphStatement(
+                    query=(
+                        "MATCH (prev:Frame {frame_id: $prev_frame_id, sequence_id: $seq_id}) "
+                        "MATCH (curr:Frame {frame_id: $frame_id, sequence_id: $seq_id}) "
+                        "MERGE (prev)-[:PRECEDES]->(curr)"
+                    ),
+                    parameters={
+                        "prev_frame_id": previous_frame_id,
+                        "frame_id": frame_id,
+                        "seq_id": sequence_id,
+                    },
+                )
+            )
+        self.last_frame_by_sequence[sequence_id] = frame_id
+        return statements
+
     @staticmethod
     def _build_object_statements(
         object_state: dict[str, Any],
@@ -152,6 +188,7 @@ class GraphAgent:
             GraphStatement(
                 query=(
                     "MERGE (o:Object {track_id: $track_id, sequence_id: $seq_id}) "
+                    "ON CREATE SET o.first_seen_frame = $frame_id "
                     "SET o.class = $class_name, "
                     "o.last_seen_frame = $frame_id, "
                     "o.last_centroid = $centroid_norm, "
@@ -162,12 +199,6 @@ class GraphAgent:
                     "o.status = $status"
                 ),
                 parameters=track_parameters,
-            ),
-            GraphStatement(
-                query=(
-                    "MERGE (f:Frame {frame_id: $frame_id, sequence_id: $seq_id})"
-                ),
-                parameters={"frame_id": object_state["frame_id"], "seq_id": sequence_id},
             ),
             GraphStatement(
                 query=(
@@ -195,7 +226,56 @@ class GraphAgent:
                 ),
                 parameters=track_parameters,
             ),
+            GraphStatement(
+                query=(
+                    "MATCH (o:Object {track_id: $track_id, sequence_id: $seq_id}) "
+                    "MATCH (s:Scene {sequence_id: $seq_id}) "
+                    "MERGE (o)-[:DETECTED_IN]->(s)"
+                ),
+                parameters={"track_id": object_state["track_id"], "seq_id": sequence_id},
+            ),
+            GraphStatement(
+                query=(
+                    "MATCH (o:Object {track_id: $track_id, sequence_id: $seq_id}) "
+                    "MATCH (c:ObjectClass {name: $class_name}) "
+                    "MERGE (o)-[:BELONGS_TO_CLASS]->(c)"
+                ),
+                parameters={
+                    "track_id": object_state["track_id"],
+                    "seq_id": sequence_id,
+                    "class_name": object_state["class_name"],
+                },
+            ),
         ]
+
+    @staticmethod
+    def _build_zone_statements(
+        zone_stats: dict[str, dict[str, float]],
+        sequence_id: str,
+        frame_id: int,
+    ) -> list[GraphStatement]:
+        statements: list[GraphStatement] = []
+        for zone_id, stats in zone_stats.items():
+            statements.append(
+                GraphStatement(
+                    query=(
+                        "MERGE (z:Zone {zone_id: $zone_id, sequence_id: $seq_id}) "
+                        "SET z.last_density = $last_density, "
+                        "z.vehicle_ratio = $vehicle_ratio, "
+                        "z.pedestrian_ratio = $pedestrian_ratio, "
+                        "z.updated_at_frame = $frame_id"
+                    ),
+                    parameters={
+                        "zone_id": zone_id,
+                        "seq_id": sequence_id,
+                        "frame_id": frame_id,
+                        "last_density": stats.get("last_density", 0.0),
+                        "vehicle_ratio": stats.get("vehicle_ratio", 0.0),
+                        "pedestrian_ratio": stats.get("pedestrian_ratio", 0.0),
+                    },
+                )
+            )
+        return statements
 
     @staticmethod
     def _build_event_statements(event: dict[str, Any]) -> list[GraphStatement]:
@@ -271,4 +351,105 @@ class GraphAgent:
                     },
                 )
             )
+        statements.extend(_build_semantic_event_edge_statements(event))
         return statements
+
+
+def _build_semantic_event_edge_statements(event: dict[str, Any]) -> list[GraphStatement]:
+    event_type = str(event["event_type"])
+    sequence_id = str(event["sequence_id"])
+    frame_id = int(event["frame_id"])
+    primary_track_id = int(event["primary_track_id"])
+    secondary_track_id = event.get("secondary_track_id")
+    metadata = event.get("metadata", {})
+
+    if event_type == "NEAR_MISS" and secondary_track_id is not None:
+        return [
+            GraphStatement(
+                query=(
+                    "MATCH (a:Object {track_id: $primary_track_id, sequence_id: $seq_id}) "
+                    "MATCH (b:Object {track_id: $secondary_track_id, sequence_id: $seq_id}) "
+                    "MERGE (a)-[r:NEAR_MISS]->(b) "
+                    "SET r.frame_id = $frame_id, "
+                    "r.distance = $distance"
+                ),
+                parameters={
+                    "primary_track_id": primary_track_id,
+                    "secondary_track_id": int(secondary_track_id),
+                    "seq_id": sequence_id,
+                    "frame_id": frame_id,
+                    "distance": metadata.get("distance"),
+                },
+            )
+        ]
+
+    if event_type == "CONVOY" and secondary_track_id is not None:
+        parameters = {
+            "primary_track_id": primary_track_id,
+            "secondary_track_id": int(secondary_track_id),
+            "seq_id": sequence_id,
+            "frame_id": frame_id,
+            "avg_distance": metadata.get("distance"),
+        }
+        return [
+            GraphStatement(
+                query=(
+                    "MATCH (a:Object {track_id: $primary_track_id, sequence_id: $seq_id}) "
+                    "MATCH (b:Object {track_id: $secondary_track_id, sequence_id: $seq_id}) "
+                    "MERGE (a)-[r:CONVOY_WITH]->(b) "
+                    "SET r.frame_id = $frame_id, "
+                    "r.avg_distance = $avg_distance"
+                ),
+                parameters=parameters,
+            ),
+            GraphStatement(
+                query=(
+                    "MATCH (a:Object {track_id: $primary_track_id, sequence_id: $seq_id}) "
+                    "MATCH (b:Object {track_id: $secondary_track_id, sequence_id: $seq_id}) "
+                    "MERGE (b)-[r:CONVOY_WITH]->(a) "
+                    "SET r.frame_id = $frame_id, "
+                    "r.avg_distance = $avg_distance"
+                ),
+                parameters=parameters,
+            ),
+        ]
+
+    if event_type == "LOITER":
+        return [
+            GraphStatement(
+                query=(
+                    "MATCH (o:Object {track_id: $primary_track_id, sequence_id: $seq_id}) "
+                    "MATCH (z:Zone {zone_id: $zone_id, sequence_id: $seq_id}) "
+                    "MERGE (o)-[r:LOITERING_IN]->(z) "
+                    "SET r.frame_id = $frame_id"
+                ),
+                parameters={
+                    "primary_track_id": primary_track_id,
+                    "seq_id": sequence_id,
+                    "zone_id": metadata.get("zone"),
+                    "frame_id": frame_id,
+                },
+            )
+        ]
+
+    if event_type == "JAYWALKING":
+        return [
+            GraphStatement(
+                query=(
+                    "MATCH (o:Object {track_id: $primary_track_id, sequence_id: $seq_id}) "
+                    "MATCH (z:Zone {zone_id: $zone_id, sequence_id: $seq_id}) "
+                    "MERGE (o)-[r:JAYWALKING_IN]->(z) "
+                    "SET r.frame_id = $frame_id, "
+                    "r.vehicle_ratio = $vehicle_ratio"
+                ),
+                parameters={
+                    "primary_track_id": primary_track_id,
+                    "seq_id": sequence_id,
+                    "zone_id": metadata.get("zone"),
+                    "frame_id": frame_id,
+                    "vehicle_ratio": metadata.get("vehicle_ratio"),
+                },
+            )
+        ]
+
+    return []

@@ -62,7 +62,7 @@ prompt:
     8. Use exact VisDrone class labels. For person-like queries use o.class IN ['pedestrian', 'people']; do not use class='person'.
     9. Return human-readable fields. Do not return internal node IDs.
     10. LIMIT 50 by default unless the user asks for all results.
-    11. NEAR_MISS severity: "critical" means distance < 0.03, "warning" means 0.03–0.05.
+    11. NEAR_MISS severity: "critical" means distance < 0.03, "warning" means 0.03-0.05.
     12. Do not use SQL syntax such as GROUP BY or HAVING. Use Cypher WITH/RETURN aggregation instead.
 
     EXAMPLE FOR PERSON-COUNT-BY-ZONE:

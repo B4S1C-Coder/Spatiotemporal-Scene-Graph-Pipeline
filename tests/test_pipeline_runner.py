@@ -149,6 +149,7 @@ class FakeEventAgent:
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.zone_stats = {"cell_0_0": {"last_density": 1.0, "vehicle_ratio": 1.0, "pedestrian_ratio": 0.0}}
 
     def process_tracks(
         self,
@@ -169,6 +170,9 @@ class FakeEventAgent:
             }
         ]
 
+    def get_zone_stats_snapshot(self) -> dict[str, dict[str, float]]:
+        return self.zone_stats
+
 
 class FakeBatchWriter:
     """Batch writer stand-in for testing graph integration and final flushes."""
@@ -184,6 +188,7 @@ class FakeBatchWriter:
         frame_id: int,
         events: list[dict[str, Any]] | None = None,
         scene_payload: dict[str, Any] | None = None,
+        zone_stats: dict[str, dict[str, float]] | None = None,
     ) -> bool:
         self.add_calls.append(
             {
@@ -192,6 +197,7 @@ class FakeBatchWriter:
                 "frame_id": frame_id,
                 "events": events,
                 "scene_payload": scene_payload,
+                "zone_stats": zone_stats,
             }
         )
         return False
@@ -305,6 +311,7 @@ def test_batch_writer_forwards_frame_data_and_flushes() -> None:
         frame_id=3,
         events=[{"event_type": "LOITER"}],
         scene_payload={"sequence_id": "seq_a"},
+        zone_stats={"cell_0_0": {"last_density": 1.0}},
     )
     batch_writer.flush()
 
@@ -316,6 +323,7 @@ def test_batch_writer_forwards_frame_data_and_flushes() -> None:
             "frame_id": 3,
             "events": [{"event_type": "LOITER"}],
             "scene_payload": {"sequence_id": "seq_a"},
+            "zone_stats": {"cell_0_0": {"last_density": 1.0}},
         }
     ]
     assert graph_agent.flush_count == 1
@@ -393,6 +401,9 @@ def test_pipeline_runner_writes_enriched_tracks_events_and_scene_payload(tmp_pat
     assert batch_writer.add_calls[1]["scene_payload"] is None
     assert batch_writer.add_calls[0]["object_states"][0]["track_id"] == 101
     assert batch_writer.add_calls[0]["events"][0]["event_type"] == "NEAR_MISS"
+    assert batch_writer.add_calls[0]["zone_stats"] == {
+        "cell_0_0": {"last_density": 1.0, "vehicle_ratio": 1.0, "pedestrian_ratio": 0.0}
+    }
 
 
 def test_pipeline_runner_processes_multiple_sequences_and_flushes_each_one(tmp_path: Path) -> None:

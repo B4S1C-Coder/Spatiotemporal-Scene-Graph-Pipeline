@@ -51,6 +51,15 @@ class EventAgent:
         self.zone_density_history: dict[str, list[dict[str, int]]] = {}
         self.zone_class_stats: dict[str, dict[str, float]] = {}
 
+    def get_zone_stats_snapshot(self) -> dict[str, dict[str, float]]:
+        """
+        Return a shallow copy of the current per-zone statistics.
+
+        Returns:
+            Mapping of zone ID to current zone metrics.
+        """
+        return {zone_id: dict(stats) for zone_id, stats in self.zone_class_stats.items()}
+
     def process_tracks(
         self,
         tracks: dict[int, dict[str, Any]],
@@ -256,8 +265,11 @@ class EventAgent:
                 self.config["zones"]["default_pedestrian_ratio"]
             )
             self.zone_class_stats[zone_id] = {
+                "last_density": float(total),
                 "vehicle_ratio": vehicle_ratio,
                 "pedestrian_ratio": pedestrian_ratio,
+                "pedestrian_count": float(counts["pedestrian"]),
+                "vehicle_count": float(counts["vehicle"]),
             }
             history = self.zone_density_history.setdefault(zone_id, [])
             history.append({"frame": frame_id, "count": counts["pedestrian"]})

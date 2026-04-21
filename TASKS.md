@@ -294,3 +294,32 @@ Tasks:
 - [x] Add richer graph result visualization in the UI
 - [x] Add an end-to-end ingestion example for writing a real sequence into Neo4j
 - [x] Expand README quickstart to cover setup, ingestion, querying, and UI usage
+
+---
+
+# Phase 14 — Graph Expressiveness Upgrade
+
+Files:
+
+```
+agents/graph_agent.py
+agents/event_agent.py
+pipeline/runner.py
+pipeline/batch_writer.py
+graph/schema.py
+```
+
+Tasks:
+
+- [x] Persist object-to-scene `DETECTED_IN` relationships
+- [x] Persist object-to-taxonomy `BELONGS_TO_CLASS` relationships
+- [x] Persist `Frame-[:PRECEDES]->Frame` temporal ordering edges
+- [x] Persist per-frame zone state on `Zone` nodes (`last_density`, `vehicle_ratio`, `pedestrian_ratio`)
+- [x] Materialize semantic graph edges from emitted events (`NEAR_MISS`, `CONVOY_WITH`, `LOITERING_IN`, `JAYWALKING_IN`)
+- [ ] Persist raw spatial evidence edges (`NEAR`, `APPROACHING`, `OVERLAPS_WITH`)
+- [ ] Persist lifecycle fields for condition-style relationships (`is_active`, `valid_from_frame`, `valid_to_frame`, duration tracking)
+- [ ] Persist density history as graph data instead of in-memory only
+- [ ] Normalize event metadata into stable first-class properties
+- [ ] Materialize crowd membership and event-causality edges (`CROWD_MEMBER_OF`, `TRIGGERED_BY`)
+- [ ] Persist motion history, not only latest motion snapshot, for graph-native trajectory queries
+- [ ] Write tests for the new graph expressiveness layer
