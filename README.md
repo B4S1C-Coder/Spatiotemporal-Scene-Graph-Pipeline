@@ -30,6 +30,23 @@ Query (& results) against this real environment (powered by a locally running `Q
 ![ui1](./docs/ui1.png)
 ![ui2](./docs/ui2.png)
 
+## Example Graph
+For the following feed:
+![traffic feed](./docs/traffic.jpg)
+
+The generated graph is:
+![Huge 3 hop graph](./docs/three_hop_graph.png)
+
+>**Note**: This is **NOT** the complete graph and only limited to 3 hops, the actual graph is huge!
+
+The query to see above graph (limited to 3 hops):
+```cypher
+MATCH (o:Object {sequence_id: 'uav0000117_02622_v'})
+MATCH p = (o)-[*1..3]-(n)
+RETURN p
+LIMIT 200
+```
+
 ## What is implemented
 
 - VisDrone dataset download and environment bootstrap scripts
