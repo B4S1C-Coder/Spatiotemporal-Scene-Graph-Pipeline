@@ -59,15 +59,16 @@ prompt:
     5. For re-identified objects, use canonical_id to group tracks.
     6. CURRENT IMPLEMENTATION NOTE: IN_ZONE only has frame_id and density_contribution. Do not use r.is_active, duration_frames, or entry_frame on IN_ZONE.
     7. CURRENT IMPLEMENTATION NOTE: APPEARED_IN only has centroid and bbox_norm. Do not use confidence, occlusion, speed, or heading on APPEARED_IN.
-    8. Use exact VisDrone class labels. For person-like queries use o.class IN ['pedestrian', 'people']; do not use class='person'.
-    9. Return human-readable fields. Do not return internal node IDs.
-    10. LIMIT 50 by default unless the user asks for all results.
-    11. NEAR_MISS severity: "critical" means distance < 0.03, "warning" means 0.03-0.05.
-    12. Do not use SQL syntax such as GROUP BY or HAVING. Use Cypher WITH/RETURN aggregation instead.
+    8. CURRENT IMPLEMENTATION NOTE: object class labels may come from either VisDrone fine-tuned weights or fallback COCO weights.
+    9. For person-like queries, match across `person`, `pedestrian`, and `people` when appropriate.
+    10. Return human-readable fields. Do not return internal node IDs.
+    11. LIMIT 50 by default unless the user asks for all results.
+    12. NEAR_MISS severity: "critical" means distance < 0.03, "warning" means 0.03-0.05.
+    13. Do not use SQL syntax such as GROUP BY or HAVING. Use Cypher WITH/RETURN aggregation instead.
 
     EXAMPLE FOR PERSON-COUNT-BY-ZONE:
     MATCH (o:Object {sequence_id: $seq_id})-[r:IN_ZONE]->(z:Zone)
-    WHERE o.class IN ['pedestrian', 'people']
+    WHERE o.class IN ['person', 'pedestrian', 'people']
     RETURN z.zone_id AS zone_id, count(o) AS person_count
     ORDER BY person_count DESC
     LIMIT 50

@@ -159,7 +159,9 @@ def main() -> None:
         submit = st.button("Run Query", type="primary", use_container_width=True)
 
     if submit:
-        query_result = run_query(query_agent, natural_language_query, sequence_id or None)
+        with right_column:
+            with st.spinner("Generating Cypher, querying Neo4j, and interpreting results..."):
+                query_result = run_query(query_agent, natural_language_query, sequence_id or None)
         summary = summarize_query_result(query_result)
 
         with right_column:

@@ -12,6 +12,7 @@ from argparse import ArgumentParser
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Protocol
 
 from configs.loader import LLM_CONFIG_PATH, load_yaml_config
@@ -19,6 +20,9 @@ from graph.neo4j_client import Neo4jClient
 from graph.queries import load_llm_few_shot_examples
 from graph.validator import normalize_cypher, validate_cypher_syntax
 from openai import OpenAI
+
+PERSON_CLASS_ALIASES = ("person", "pedestrian", "people")
+PERSON_QUERY_TERMS = ("person", "people", "pedestrian", "pedestrians", "man", "men", "woman", "women")
 
 
 class LLMClientProtocol(Protocol):
@@ -116,7 +120,10 @@ class LLMQueryAgent:
             user_prompt=user_prompt,
             model=model,
         )
-        return normalize_cypher(cypher)
+        return apply_query_alias_expansion(
+            normalize_cypher(cypher),
+            natural_language_query=natural_language_query,
+        )
 
     def validate_cypher(self, cypher: str) -> tuple[bool, str | None]:
         """
@@ -276,6 +283,45 @@ def _resolve_llm_api_key(config: dict[str, Any]) -> str:
     if _resolve_llm_base_url(config) is not None:
         return "llama.cpp"
     return ""
+
+
+def apply_query_alias_expansion(cypher: str, natural_language_query: str) -> str:
+    """
+    Expand person-like class filters so the query can match either VisDrone or
+    fallback-COCO class labels.
+
+    Args:
+        cypher: Generated Cypher query.
+        natural_language_query: Original user question.
+
+    Returns:
+        Possibly rewritten Cypher query.
+    """
+    lowered_question = natural_language_query.lower()
+    if not any(term in lowered_question for term in PERSON_QUERY_TERMS):
+        return cypher
+
+    expanded = cypher
+    expanded = _expand_person_class_in_clause(expanded)
+    return expanded
+
+
+def _expand_person_class_in_clause(cypher: str) -> str:
+    pattern = re.compile(r"\bclass\s+IN\s+\[(?P<values>[^\]]*)\]", re.IGNORECASE)
+
+    def _replacement(match: re.Match[str]) -> str:
+        values = re.findall(r"['\"]([^'\"]+)['\"]", match.group("values"))
+        lowered_values = {value.lower() for value in values}
+        if not lowered_values.intersection(PERSON_CLASS_ALIASES):
+            return match.group(0)
+        aliases = list(values)
+        for alias in PERSON_CLASS_ALIASES:
+            if alias not in {value.lower() for value in aliases}:
+                aliases.append(alias)
+        alias_list = ", ".join(f"'{alias}'" for alias in aliases)
+        return f"class IN [{alias_list}]"
+
+    return pattern.sub(_replacement, cypher)
 
 
 def run_query_cli(

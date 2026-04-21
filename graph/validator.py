@@ -28,10 +28,6 @@ SEMANTIC_RULE_ERRORS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"\bis_active\b", re.IGNORECASE),
         "Cypher query references is_active, which is not persisted for the currently supported graph relationships.",
     ),
-    (
-        re.compile(r"class\s*[:=]\s*['\"]person['\"]", re.IGNORECASE),
-        "Cypher query uses class='person'. Use VisDrone class labels such as 'pedestrian' or 'people'.",
-    ),
 )
 READ_PREFIXES = ("MATCH", "OPTIONAL MATCH", "WITH", "UNWIND", "CALL")
 

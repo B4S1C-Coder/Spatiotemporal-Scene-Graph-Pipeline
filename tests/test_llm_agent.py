@@ -5,7 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 import textwrap
 
-from agents.llm_agent import LLMQueryAgent, OpenAILLMClient, load_llm_config, run_query_cli
+from agents.llm_agent import (
+    LLMQueryAgent,
+    OpenAILLMClient,
+    apply_query_alias_expansion,
+    load_llm_config,
+    run_query_cli,
+)
 
 
 class FakeLLMClient:
@@ -95,7 +101,7 @@ def write_llm_config(config_path: Path) -> None:
               system_preamble: |
                 You are a Cypher query generator.
                 IN_ZONE only has frame_id and density_contribution.
-                Do not use class='person'; use 'pedestrian' or 'people'.
+                For person-like queries, match across person, pedestrian, and people.
               grounding_suffix: |
                 Never infer facts not present in the graph.
               interpretation_preamble: |
@@ -185,7 +191,7 @@ def test_build_system_prompt_includes_schema_and_few_shot_examples(tmp_path: Pat
     assert "Graph Traversal Patterns for LLM Agent" in prompt
     assert "Pattern 1: Object History" in prompt
     assert "Never infer facts not present in the graph." in prompt
-    assert "do not use class='person'" in prompt.lower()
+    assert "match across person, pedestrian, and people" in prompt.lower()
     assert "IN_ZONE only has frame_id and density_contribution" in prompt
 
 
@@ -221,8 +227,8 @@ def test_validate_cypher_rejects_group_by_syntax(tmp_path: Path) -> None:
     assert error == "Cypher query contains SQL-only syntax unsupported by Neo4j."
 
 
-def test_validate_cypher_rejects_person_class_label(tmp_path: Path) -> None:
-    """The validator should reject non-VisDrone person class labels."""
+def test_validate_cypher_allows_person_class_label(tmp_path: Path) -> None:
+    """The validator should allow person-like labels because the graph may contain COCO fallback classes."""
     config_path = tmp_path / "llm.yaml"
     write_llm_config(config_path)
     agent = LLMQueryAgent(
@@ -233,8 +239,30 @@ def test_validate_cypher_rejects_person_class_label(tmp_path: Path) -> None:
 
     is_valid, error = agent.validate_cypher("MATCH (o:Object {class: 'person', sequence_id: $seq_id}) RETURN o")
 
-    assert is_valid is False
-    assert error == "Cypher query uses class='person'. Use VisDrone class labels such as 'pedestrian' or 'people'."
+    assert is_valid is True
+    assert error is None
+
+
+def test_apply_query_alias_expansion_adds_person_label_to_person_like_in_clause() -> None:
+    """Person-like NL queries should expand class filters to include the COCO fallback label."""
+    cypher = (
+        "MATCH (o:Object {sequence_id: $seq_id}) "
+        "WHERE o.class IN ['pedestrian', 'people'] "
+        "RETURN count(o) AS person_count"
+    )
+
+    expanded = apply_query_alias_expansion(cypher, natural_language_query="how many persons are in this scene?")
+
+    assert "['pedestrian', 'people', 'person']" in expanded or "['pedestrian', 'people', 'person'" in expanded
+
+
+def test_apply_query_alias_expansion_leaves_non_person_queries_unchanged() -> None:
+    """Unrelated queries should not be rewritten."""
+    cypher = "MATCH (o:Object {sequence_id: $seq_id}) WHERE o.class IN ['car', 'bus'] RETURN count(o) AS vehicle_count"
+
+    expanded = apply_query_alias_expansion(cypher, natural_language_query="how many vehicles are in this scene?")
+
+    assert expanded == cypher
 
 
 def test_validate_cypher_rejects_is_active_reference(tmp_path: Path) -> None:
