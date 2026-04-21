@@ -7,11 +7,19 @@ testable in environments where the UI dependency is not installed.
 
 from __future__ import annotations
 
+from io import BytesIO
 import json
-from typing import Any, Protocol
+from pathlib import Path
+import tempfile
+from typing import Any, Callable, Protocol
+
+import cv2
+import numpy as np
+from PIL import Image
 
 from agents.llm_agent import LLMQueryAgent
 from graph.neo4j_client import Neo4jClient
+from pipeline.sequence_loader import SequenceLoader
 
 
 class QueryAgentProtocol(Protocol):
@@ -19,6 +27,17 @@ class QueryAgentProtocol(Protocol):
 
     def query(self, natural_language_query: str, sequence_id: str | None = None) -> dict[str, Any]:
         """Execute a natural-language graph query and return a result payload."""
+
+
+class Neo4jClientProtocol(Protocol):
+    """Minimal Neo4j client contract required by visualization helpers."""
+
+    def execute_query(
+        self,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Execute a Cypher query and return result rows."""
 
 
 def run_query(
@@ -122,6 +141,290 @@ def build_default_query_agent() -> LLMQueryAgent:
     return LLMQueryAgent(neo4j_client=neo4j_client)
 
 
+def extract_visual_targets(
+    result_rows: list[dict[str, Any]],
+) -> dict[str, list[int]]:
+    """
+    Extract candidate frame and track IDs from query result rows.
+    """
+    frame_ids: set[int] = set()
+    track_ids: set[int] = set()
+    frame_keys = ("frame_id", "start_frame", "end_frame", "last_seen_frame", "first_seen_frame")
+    track_keys = ("track_id", "primary_track_id", "secondary_track_id")
+
+    for row in result_rows:
+        for key in frame_keys:
+            value = row.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                frame_ids.add(int(value))
+        for key in track_keys:
+            value = row.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and int(value) >= 0:
+                track_ids.add(int(value))
+
+    return {
+        "frame_ids": sorted(frame_ids),
+        "track_ids": sorted(track_ids),
+    }
+
+
+def fetch_frame_boxes(
+    neo4j_client: Neo4jClientProtocol,
+    sequence_id: str,
+    frame_id: int,
+    track_ids: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Fetch bounding-box overlays for one frame from the graph.
+    """
+    query = (
+        "MATCH (o:Object {sequence_id: $seq_id})-[r:APPEARED_IN]->"
+        "(f:Frame {frame_id: $frame_id, sequence_id: $seq_id}) "
+    )
+    parameters: dict[str, Any] = {
+        "seq_id": sequence_id,
+        "frame_id": frame_id,
+    }
+    if track_ids:
+        query += "WHERE o.track_id IN $track_ids "
+        parameters["track_ids"] = track_ids
+    query += (
+        "RETURN o.track_id AS track_id, "
+        "o.class AS class_name, "
+        "r.bbox_norm AS bbox_norm "
+        "ORDER BY o.track_id ASC"
+    )
+    return neo4j_client.execute_query(query, parameters)
+
+
+def resolve_frame_path(
+    sequence_id: str,
+    frame_id: int,
+    sequence_loader_factory: Callable[..., Any] = SequenceLoader,
+) -> Path | None:
+    """
+    Resolve an on-disk frame path for the given sequence and frame ID.
+    """
+    loader = sequence_loader_factory(sequence_id=sequence_id)
+    for candidate_path in loader.get_sequence_paths().frame_paths:
+        if int(candidate_path.stem) - 1 == frame_id:
+            return candidate_path
+    return None
+
+
+def render_bounding_boxes(
+    frame_bgr: np.ndarray,
+    overlays: list[dict[str, Any]],
+) -> np.ndarray:
+    """
+    Render graph-derived bounding boxes onto a frame.
+    """
+    rendered = frame_bgr.copy()
+    height, width = rendered.shape[:2]
+    for overlay in overlays:
+        bbox_norm = overlay.get("bbox_norm")
+        if not isinstance(bbox_norm, list) or len(bbox_norm) != 4:
+            continue
+        x1 = max(0, min(width - 1, int(round(float(bbox_norm[0]) * width))))
+        y1 = max(0, min(height - 1, int(round(float(bbox_norm[1]) * height))))
+        x2 = max(0, min(width - 1, int(round(float(bbox_norm[2]) * width))))
+        y2 = max(0, min(height - 1, int(round(float(bbox_norm[3]) * height))))
+        label = f"{overlay.get('class_name', 'object')} #{overlay.get('track_id', '?')}"
+        cv2.rectangle(rendered, (x1, y1), (x2, y2), (0, 220, 0), 2)
+        cv2.putText(
+            rendered,
+            label,
+            (x1, max(18, y1 - 6)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 220, 0),
+            1,
+            cv2.LINE_AA,
+        )
+    return rendered
+
+
+def build_preview_frames(
+    sequence_id: str,
+    frame_ids: list[int],
+    track_ids: list[int],
+    neo4j_client: Neo4jClientProtocol,
+    sequence_loader_factory: Callable[..., Any] = SequenceLoader,
+    max_frames: int = 3,
+) -> list[dict[str, Any]]:
+    """
+    Build a small set of rendered preview frames from query results.
+    """
+    previews: list[dict[str, Any]] = []
+    for frame_id in frame_ids[:max_frames]:
+        frame_path = resolve_frame_path(
+            sequence_id=sequence_id,
+            frame_id=frame_id,
+            sequence_loader_factory=sequence_loader_factory,
+        )
+        if frame_path is None:
+            continue
+        frame_bgr = cv2.imread(str(frame_path))
+        if frame_bgr is None:
+            continue
+        overlays = fetch_frame_boxes(neo4j_client, sequence_id, frame_id, track_ids=track_ids or None)
+        rendered = render_bounding_boxes(frame_bgr, overlays)
+        previews.append(
+            {
+                "frame_id": frame_id,
+                "frame_path": str(frame_path),
+                "image_rgb": cv2.cvtColor(rendered, cv2.COLOR_BGR2RGB),
+                "overlay_count": len(overlays),
+            }
+        )
+    return previews
+
+
+def build_clip_gif_bytes(
+    sequence_id: str,
+    center_frame_id: int,
+    track_ids: list[int],
+    neo4j_client: Neo4jClientProtocol,
+    sequence_loader_factory: Callable[..., Any] = SequenceLoader,
+    radius: int = 2,
+) -> bytes | None:
+    """
+    Build a short annotated GIF clip around a frame of interest.
+    """
+    rendered_frames: list[Image.Image] = []
+    for frame_id in range(max(0, center_frame_id - radius), center_frame_id + radius + 1):
+        frame_path = resolve_frame_path(
+            sequence_id=sequence_id,
+            frame_id=frame_id,
+            sequence_loader_factory=sequence_loader_factory,
+        )
+        if frame_path is None:
+            continue
+        frame_bgr = cv2.imread(str(frame_path))
+        if frame_bgr is None:
+            continue
+        overlays = fetch_frame_boxes(neo4j_client, sequence_id, frame_id, track_ids=track_ids or None)
+        rendered = render_bounding_boxes(frame_bgr, overlays)
+        rendered_frames.append(Image.fromarray(cv2.cvtColor(rendered, cv2.COLOR_BGR2RGB)))
+
+    if not rendered_frames:
+        return None
+
+    buffer = BytesIO()
+    rendered_frames[0].save(
+        buffer,
+        format="GIF",
+        save_all=True,
+        append_images=rendered_frames[1:],
+        duration=250,
+        loop=0,
+    )
+    return buffer.getvalue()
+
+
+def build_clip_video_bytes(
+    sequence_id: str,
+    center_frame_id: int,
+    track_ids: list[int],
+    neo4j_client: Neo4jClientProtocol,
+    sequence_loader_factory: Callable[..., Any] = SequenceLoader,
+    radius: int = 2,
+    fps: int = 4,
+    writer_factory: Callable[..., Any] = cv2.VideoWriter,
+    fourcc_factory: Callable[..., int] = cv2.VideoWriter_fourcc,
+) -> bytes | None:
+    """
+    Build a short annotated MP4 clip around a frame of interest.
+    """
+    rendered_frames: list[np.ndarray] = []
+    for frame_id in range(max(0, center_frame_id - radius), center_frame_id + radius + 1):
+        frame_path = resolve_frame_path(
+            sequence_id=sequence_id,
+            frame_id=frame_id,
+            sequence_loader_factory=sequence_loader_factory,
+        )
+        if frame_path is None:
+            continue
+        frame_bgr = cv2.imread(str(frame_path))
+        if frame_bgr is None:
+            continue
+        overlays = fetch_frame_boxes(neo4j_client, sequence_id, frame_id, track_ids=track_ids or None)
+        rendered_frames.append(render_bounding_boxes(frame_bgr, overlays))
+
+    if not rendered_frames:
+        return None
+
+    height, width = rendered_frames[0].shape[:2]
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_file:
+        writer = writer_factory(
+            temp_file.name,
+            fourcc_factory(*"mp4v"),
+            float(fps),
+            (width, height),
+        )
+        if not getattr(writer, "isOpened", lambda: True)():
+            return None
+        try:
+            for frame in rendered_frames:
+                writer.write(frame)
+        finally:
+            writer.release()
+
+        video_bytes = Path(temp_file.name).read_bytes()
+        return video_bytes or None
+
+
+def build_query_visualization_payload(
+    *,
+    query_result: dict[str, Any],
+    sequence_id: str | None,
+    neo4j_client: Neo4jClientProtocol,
+    sequence_loader_factory: Callable[..., Any] = SequenceLoader,
+) -> dict[str, Any] | None:
+    """
+    Build UI visualization assets from query results when enough context exists.
+    """
+    if not sequence_id:
+        return None
+
+    result_rows = list(query_result.get("results", []))
+    targets = extract_visual_targets(result_rows)
+    if not targets["frame_ids"]:
+        return None
+
+    preview_frames = build_preview_frames(
+        sequence_id=sequence_id,
+        frame_ids=targets["frame_ids"],
+        track_ids=targets["track_ids"],
+        neo4j_client=neo4j_client,
+        sequence_loader_factory=sequence_loader_factory,
+    )
+    if not preview_frames:
+        return None
+
+    clip_gif = build_clip_gif_bytes(
+        sequence_id=sequence_id,
+        center_frame_id=preview_frames[0]["frame_id"],
+        track_ids=targets["track_ids"],
+        neo4j_client=neo4j_client,
+        sequence_loader_factory=sequence_loader_factory,
+    )
+    clip_video = build_clip_video_bytes(
+        sequence_id=sequence_id,
+        center_frame_id=preview_frames[0]["frame_id"],
+        track_ids=targets["track_ids"],
+        neo4j_client=neo4j_client,
+        sequence_loader_factory=sequence_loader_factory,
+    )
+    return {
+        "preview_frames": preview_frames,
+        "clip_gif": clip_gif,
+        "clip_video": clip_video,
+        "track_ids": targets["track_ids"],
+        "frame_ids": targets["frame_ids"],
+    }
+
+
 def main() -> None:
     """Run the Streamlit application."""
     try:
@@ -191,6 +494,34 @@ def main() -> None:
                     st.code(json.dumps(result_rows, indent=2, sort_keys=True), language="json")
             else:
                 st.info("No result rows returned.")
+
+            visualization_payload = build_query_visualization_payload(
+                query_result=query_result,
+                sequence_id=sequence_id or None,
+                neo4j_client=query_agent.neo4j_client,
+            )
+            if visualization_payload is not None:
+                st.subheader("Frame Visualization")
+                for preview in visualization_payload["preview_frames"]:
+                    st.image(
+                        preview["image_rgb"],
+                        caption=(
+                            f"Frame {preview['frame_id']} | overlays: {preview['overlay_count']} | "
+                            f"{Path(preview['frame_path']).name}"
+                        ),
+                        use_container_width=True,
+                    )
+
+                if visualization_payload["clip_gif"] is not None:
+                    st.subheader("Annotated Clip")
+                    if visualization_payload["clip_video"] is not None:
+                        st.video(visualization_payload["clip_video"])
+                    else:
+                        st.image(
+                            visualization_payload["clip_gif"],
+                            caption="GIF fallback clip centered on the first matched frame.",
+                            use_container_width=True,
+                        )
 
 
 if __name__ == "__main__":  # pragma: no cover - interactive runtime path
