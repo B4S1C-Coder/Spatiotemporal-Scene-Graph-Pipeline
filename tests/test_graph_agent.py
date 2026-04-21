@@ -127,6 +127,13 @@ def test_graph_agent_writes_event_statements(tmp_path: Path) -> None:
     assert any("role: 'primary'" in query for query in queries)
     assert any("role: 'secondary'" in query for query in queries)
     assert any("MERGE (a)-[r:NEAR_MISS]->(b)" in query for query in queries)
+    event_create_statement = next(
+        statement
+        for statement in client.executed_batches[0]
+        if "CREATE (e:Event" in statement.query
+    )
+    assert "metadata_json: $metadata_json" in event_create_statement.query
+    assert event_create_statement.parameters["metadata_json"] == '{"distance": 0.03}'
 
 
 def test_graph_agent_materializes_semantic_edges_for_supported_event_types(tmp_path: Path) -> None:
@@ -198,3 +205,5 @@ def test_graph_agent_buffers_failed_batches_to_jsonl(tmp_path: Path) -> None:
     payload = json.loads(retry_path.read_text(encoding="utf-8").strip())
     assert payload["frame_count"] == 1
     assert any("MERGE (o:Object" in statement["query"] for statement in payload["statements"])
+    assert agent.pending_statements == []
+    assert agent.pending_frame_count == 0

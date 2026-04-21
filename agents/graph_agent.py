@@ -99,6 +99,8 @@ class GraphAgent:
             self.pending_frame_count = 0
         except Exception:
             self._buffer_failed_batch(statements_to_flush, frame_count)
+            self.pending_statements.clear()
+            self.pending_frame_count = 0
             raise
 
     def _buffer_failed_batch(self, statements: list[GraphStatement], frame_count: int) -> None:
@@ -279,6 +281,7 @@ class GraphAgent:
 
     @staticmethod
     def _build_event_statements(event: dict[str, Any]) -> list[GraphStatement]:
+        metadata = event.get("metadata", {})
         event_key = (
             f"{event['sequence_id']}:"
             f"{event['frame_id']}:"
@@ -297,7 +300,7 @@ class GraphAgent:
                     "confidence: $confidence, "
                     "primary_track_id: $primary_track_id, "
                     "secondary_track_id: $secondary_track_id, "
-                    "metadata: $metadata"
+                    "metadata_json: $metadata_json"
                     "})"
                 ),
                 parameters={
@@ -308,7 +311,7 @@ class GraphAgent:
                     "confidence": event["confidence"],
                     "primary_track_id": event["primary_track_id"],
                     "secondary_track_id": event.get("secondary_track_id"),
-                    "metadata": event.get("metadata", {}),
+                    "metadata_json": json.dumps(metadata, sort_keys=True),
                 },
             ),
             GraphStatement(
