@@ -4,6 +4,12 @@
 > typed, validated, and queried** in the Neo4j graph database. Written for coding agents.
 > Do not write relationship logic without reading this file first.
 
+> **Current implementation note:** much of this document still describes the
+> intended relationship ontology, not the full set of relationships currently
+> written by the codebase. The subset that is actually persisted today, and the
+> resulting limitations, are documented in
+> [docs/graph_generation_shortcomings.md](/home/saksham/codebase/deep-learning-project/docs/graph_generation_shortcomings.md).
+
 ---
 
 ## Table of Contents

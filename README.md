@@ -140,6 +140,7 @@ venv/bin/streamlit run ui/app.py
 ## Additional docs
 
 - [Usage Guide](/home/saksham/codebase/deep-learning-project/docs/usage.md)
+- [Graph Generation Shortcomings](/home/saksham/codebase/deep-learning-project/docs/graph_generation_shortcomings.md)
 - [LLM Agent Notes](/home/saksham/codebase/deep-learning-project/docs/llm_agent_phase10.md)
 - [Evaluation Tools](/home/saksham/codebase/deep-learning-project/docs/evaluation_tools_phase11.md)
 
@@ -149,6 +150,7 @@ venv/bin/streamlit run ui/app.py
 - the Streamlit UI is for querying graph results, not for interactive video playback or graph-node rendering
 - entity resolution is now wired as a sequence-final post-processing step, but it depends on the graph already containing the sequence history
 - evaluation scripts are lightweight JSON-driven evaluators, not full external benchmark integrations
+- the biggest current limitation is graph expressiveness: the persisted graph is a thinner subset of the target ontology, so some meaningful questions remain under-supported until more semantic and lifecycle relationships are written
 
 ## Status
 

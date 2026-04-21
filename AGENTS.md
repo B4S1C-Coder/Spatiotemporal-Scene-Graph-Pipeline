@@ -43,6 +43,11 @@ The pipeline mimics what Palantir's Gotham/AIP does at a research scale:
 
 > **Companion document:** All relationship construction rules, triad definitions, lifecycle management, and Cypher traversal patterns are specified in `relationships.md`. Agents must read both files.
 
+> **Current implementation note:** This file describes the target ontology and
+> reasoning surface. The graph currently persisted by the codebase is a thinner
+> subset. Before updating prompts, graph logic, or query examples, also read
+> `docs/graph_generation_shortcomings.md`.
+
 **Five enrichment layers** are built on top of basic detection:
 
 | Layer | What it adds |
@@ -393,6 +398,13 @@ SET r.frame_id = $frame_id,
 MERGE (f:Frame {frame_id: $frame_id, sequence_id: $seq_id})
 MERGE (o)-[:APPEARED_IN {centroid: $centroid_norm}]->(f)
 ```
+
+**Current implementation reality:** the code currently persists `Object`,
+`Frame`, `Zone`, `Scene`, and `Event` nodes plus `IN_ZONE`, `APPEARED_IN`,
+`INVOLVES`, `OCCURRED_IN`, `SAME_ENTITY_AS`, and `COEXISTS_WITH`
+relationships. It does not yet materialize the richer semantic and
+hierarchical relationship set described elsewhere in this file during normal
+ingestion.
 
 **Batching:** Accumulate writes across 30 frames (1 second at 30fps) and flush as a single transaction. Do not write per-frame individually — Neo4j will buckle.
 
@@ -757,6 +769,11 @@ MERGE (e)-[:OCCURRED_IN]->(f)
 ---
 
 ## 7. LLM Query Interface
+
+**Important:** the query interface must be grounded in the graph that actually
+exists in Neo4j, not just the target ontology in this document. Use
+`docs/graph_generation_shortcomings.md` as the source of truth for current
+implementation limits.
 
 ### Supported Query Categories
 

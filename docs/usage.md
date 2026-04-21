@@ -23,11 +23,10 @@ Implemented layers:
 
 What is still incomplete or important to note:
 
-- the pipeline runner does not yet expose a finished CLI entrypoint
-- `pipeline/post_processor.py` is still empty, so entity resolution is implemented as a module but not yet wired into a sequence-completion command
 - the Streamlit UI is focused on natural-language graph queries, not live frame playback or graph visualization
 - the evaluation scripts are lightweight JSON-driven evaluators, not full dataset-integrated benchmarking pipelines like TrackEval
 - to use real LLM queries, you still need a reachable LLM endpoint and a populated Neo4j graph
+- the graph currently written into Neo4j is much thinner than the full ontology described in `AGENTS.md`; see [docs/graph_generation_shortcomings.md](/home/saksham/codebase/deep-learning-project/docs/graph_generation_shortcomings.md)
 
 ## Setup
 
@@ -227,8 +226,7 @@ Expected input payloads are documented in
 
 - `streamlit` was added as a dependency in `requirements.txt`, but if your venv was created before that change you need to reinstall dependencies
 - the UI will not function without a live Neo4j instance and a working LLM endpoint
-- the repository does not yet provide a polished command that ingests a sequence, runs the full pipeline, and then runs entity resolution automatically
-- some modules are implemented primarily as reusable library surfaces plus tests, so usage still requires a small amount of manual orchestration
+- the main practical limitation is not just prompt quality; the graph generation layer still does not persist many of the semantic and lifecycle relationships described by the target ontology
 - the detection and tracking stack depends on model weights and VisDrone data being present in the expected directories
 
 ## What still needs to be done
