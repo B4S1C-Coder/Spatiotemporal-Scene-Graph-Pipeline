@@ -976,6 +976,14 @@ RETURN e1.frame_id AS crowd_frame, e2.frame_id AS loiter_frame,
        e2.frame_id - e1.frame_id AS frames_between
 ```
 
+### Pattern 11: Text Message Content by Sender
+
+```cypher
+// "Show me the text of the message sent by Operator Bravo."
+MATCH (m:Message {sender: 'Operator Bravo', sequence_id: $seq_id})
+RETURN m.text
+```
+
 ---
 
 ## Appendix: Relationship Construction Decision Tree
