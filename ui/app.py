@@ -458,41 +458,60 @@ def build_query_visualization_payload(
     if not targets["frame_ids"]:
         return None
 
-    preview_frames = build_preview_frames(
-        sequence_id=active_sequence_id,
-        frame_ids=targets["frame_ids"],
-        track_ids=targets["track_ids"],
-        neo4j_client=neo4j_client,
-        sequence_loader_factory=sequence_loader_factory,
-    )
+    def dynamic_loader_factory(sequence_id: str, config: dict[str, Any] | None = None) -> Any:
+        video_path = Path(f"data/{sequence_id}.mp4")
+        if video_path.is_file():
+            from pipeline.video_loader import VideoLoader
+            return VideoLoader(str(video_path), config=config)
+        return sequence_loader_factory(sequence_id=sequence_id, config=config)
+
+    try:
+        preview_frames = build_preview_frames(
+            sequence_id=active_sequence_id,
+            frame_ids=targets["frame_ids"],
+            track_ids=targets["track_ids"],
+            neo4j_client=neo4j_client,
+            sequence_loader_factory=dynamic_loader_factory,
+        )
+    except Exception as e:
+        print(f"[DEBUG_VIS] Exception in build_preview_frames: {e}")
+        preview_frames = []
     print(f"[DEBUG_VIS] preview_frames generated {len(preview_frames)} frames.")
     
-    if not preview_frames:
-        print("[DEBUG_VIS] preview_frames is empty, returning None from payload builder")
+    precomputed_video_path = Path(f"data/precomputed_videos/{active_sequence_id}.webm")
+
+    if not preview_frames and not precomputed_video_path.is_file():
+        print("[DEBUG_VIS] preview_frames is empty and no precomputed video found. Returning None.")
         return None
 
-    precomputed_video_path = Path(f"data/precomputed_videos/{active_sequence_id}.webm")
     clip_start_time = 0.0
 
     if precomputed_video_path.is_file():
         clip_video = precomputed_video_path.read_bytes()
         clip_gif = None
-        # Approximate start time assuming 30fps (VisDrone default)
-        clip_start_time = max(0.0, float(preview_frames[0]["frame_id"]) / 30.0 - 1.5)
+        
+        # Calculate start time safely
+        first_frame_id = 0
+        if preview_frames:
+            first_frame_id = preview_frames[0]["frame_id"]
+        elif targets["frame_ids"]:
+            first_frame_id = targets["frame_ids"][0]
+            
+        clip_start_time = max(0.0, float(first_frame_id) / 30.0 - 1.5)
     else:
         clip_gif = build_clip_gif_bytes(
             sequence_id=active_sequence_id,
             center_frame_id=preview_frames[0]["frame_id"],
             track_ids=targets["track_ids"],
             neo4j_client=neo4j_client,
-            sequence_loader_factory=sequence_loader_factory,
+            sequence_loader_factory=dynamic_loader_factory,
         )
         clip_video = build_clip_video_bytes(
             sequence_id=active_sequence_id,
             center_frame_id=preview_frames[0]["frame_id"],
             track_ids=targets["track_ids"],
             neo4j_client=neo4j_client,
-            sequence_loader_factory=sequence_loader_factory,
+            sequence_loader_factory=dynamic_loader_factory,
         )
 
     return {
