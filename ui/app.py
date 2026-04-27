@@ -471,24 +471,35 @@ def build_query_visualization_payload(
         print("[DEBUG_VIS] preview_frames is empty, returning None from payload builder")
         return None
 
-    clip_gif = build_clip_gif_bytes(
-        sequence_id=active_sequence_id,
-        center_frame_id=preview_frames[0]["frame_id"],
-        track_ids=targets["track_ids"],
-        neo4j_client=neo4j_client,
-        sequence_loader_factory=sequence_loader_factory,
-    )
-    clip_video = build_clip_video_bytes(
-        sequence_id=active_sequence_id,
-        center_frame_id=preview_frames[0]["frame_id"],
-        track_ids=targets["track_ids"],
-        neo4j_client=neo4j_client,
-        sequence_loader_factory=sequence_loader_factory,
-    )
+    precomputed_video_path = Path(f"data/precomputed_videos/{active_sequence_id}.webm")
+    clip_start_time = 0.0
+
+    if precomputed_video_path.is_file():
+        clip_video = precomputed_video_path.read_bytes()
+        clip_gif = None
+        # Approximate start time assuming 30fps (VisDrone default)
+        clip_start_time = max(0.0, float(preview_frames[0]["frame_id"]) / 30.0 - 1.5)
+    else:
+        clip_gif = build_clip_gif_bytes(
+            sequence_id=active_sequence_id,
+            center_frame_id=preview_frames[0]["frame_id"],
+            track_ids=targets["track_ids"],
+            neo4j_client=neo4j_client,
+            sequence_loader_factory=sequence_loader_factory,
+        )
+        clip_video = build_clip_video_bytes(
+            sequence_id=active_sequence_id,
+            center_frame_id=preview_frames[0]["frame_id"],
+            track_ids=targets["track_ids"],
+            neo4j_client=neo4j_client,
+            sequence_loader_factory=sequence_loader_factory,
+        )
+
     return {
         "preview_frames": preview_frames,
         "clip_gif": clip_gif,
         "clip_video": clip_video,
+        "clip_start_time": clip_start_time,
         "track_ids": targets["track_ids"],
         "frame_ids": targets["frame_ids"],
     }
@@ -584,10 +595,14 @@ def main() -> None:
                         use_container_width=True,
                     )
 
-                if visualization_payload["clip_gif"] is not None:
+                if visualization_payload["clip_gif"] is not None or visualization_payload["clip_video"] is not None:
                     st.subheader("Annotated Clip")
                     if visualization_payload["clip_video"] is not None:
-                        st.video(visualization_payload["clip_video"], format="video/webm")
+                        st.video(
+                            visualization_payload["clip_video"],
+                            format="video/webm",
+                            start_time=int(visualization_payload.get("clip_start_time", 0))
+                        )
                     else:
                         st.image(
                             visualization_payload["clip_gif"],

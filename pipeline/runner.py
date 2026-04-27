@@ -16,6 +16,8 @@ from pathlib import Path
 import time
 from typing import Any, Callable
 
+import cv2
+
 from agents.detection_agent import DetectionAgent
 from agents.event_agent import EventAgent
 from agents.graph_agent import GraphAgent
@@ -251,6 +253,11 @@ class PipelineRunner:
         start_time = time.monotonic()
         peak_rss_mb = self.current_rss_mb_fn()
 
+        from ui.app import render_bounding_boxes
+        video_path = Path(f"data/precomputed_videos/{sequence_id}.webm")
+        video_path.parent.mkdir(parents=True, exist_ok=True)
+        video_writer = None
+
         self.logger.info(
             "Starting sequence %s | frame_skip=%s | retain_outputs=%s | rss_cap_mb=%.1f",
             sequence_id,
@@ -265,11 +272,32 @@ class PipelineRunner:
                 if retain_outputs:
                     processed_packets.append(frame_result)
 
+                if video_writer is None:
+                    fps = frame_packet.get("scene_payload", {}).get("frame_rate", 30)
+                    effective_skip = frame_packet.get("frame_skip", 1)
+                    fps = max(1, fps // effective_skip)
+                    height, width = frame_packet["frame"].shape[:2]
+                    video_writer = cv2.VideoWriter(
+                        str(video_path),
+                        cv2.VideoWriter_fourcc(*"vp80"),
+                        float(fps),
+                        (width, height),
+                    )
+
+                rendered_frame = render_bounding_boxes(
+                    frame_packet["frame"],
+                    frame_result["enriched_tracks"],
+                    letterbox_img_size=int(self.config.get("vision", {}).get("img_size", 1280))
+                )
+                video_writer.write(rendered_frame)
+
                 peak_rss_mb = max(peak_rss_mb, self._maybe_log_and_enforce_memory(sequence_id, frame_count))
 
                 del frame_result
                 del frame_packet
         finally:
+            if video_writer is not None:
+                video_writer.release()
             self.batch_writer.flush()
             self.gc_collect_fn()
 

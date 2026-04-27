@@ -23,12 +23,14 @@ class FakeSequenceLoader:
 
     def iter_frames(self, frame_skip: int | None = None):
         FakeSequenceLoader.iter_calls.append({"sequence_id": self.sequence_id, "frame_skip": frame_skip})
+        import numpy as np
         yield {
             "sequence_id": self.sequence_id,
             "frame_id": 0,
             "frame_skip": frame_skip or 1,
             "orig_width": 1920,
             "orig_height": 1080,
+            "frame": np.zeros((1080, 1920, 3), dtype=np.uint8),
             "frame_letterboxed": f"frame-{self.sequence_id}-0",
             "scene_payload": {"sequence_id": self.sequence_id, "scene_type": "urban"},
         }
@@ -38,6 +40,7 @@ class FakeSequenceLoader:
             "frame_skip": frame_skip or 1,
             "orig_width": 1920,
             "orig_height": 1080,
+            "frame": np.zeros((1080, 1920, 3), dtype=np.uint8),
             "frame_letterboxed": f"frame-{self.sequence_id}-1",
             "scene_payload": None,
         }
