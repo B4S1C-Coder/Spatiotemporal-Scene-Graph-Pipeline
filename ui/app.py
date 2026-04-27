@@ -396,10 +396,10 @@ def build_clip_video_bytes(
         return None
 
     height, width = rendered_frames[0].shape[:2]
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_file:
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=True) as temp_file:
         writer = writer_factory(
             temp_file.name,
-            fourcc_factory(*"mp4v"),
+            fourcc_factory(*"vp80"),
             float(fps),
             (width, height),
         )
@@ -587,7 +587,7 @@ def main() -> None:
                 if visualization_payload["clip_gif"] is not None:
                     st.subheader("Annotated Clip")
                     if visualization_payload["clip_video"] is not None:
-                        st.video(visualization_payload["clip_video"])
+                        st.video(visualization_payload["clip_video"], format="video/webm")
                     else:
                         st.image(
                             visualization_payload["clip_gif"],
