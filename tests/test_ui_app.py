@@ -180,6 +180,7 @@ def test_extract_visual_targets_collects_frame_and_track_ids() -> None:
     assert targets == {
         "frame_ids": [10, 12],
         "track_ids": [7, 9, 11],
+        "sequence_id": None,
     }
 
 
@@ -273,8 +274,8 @@ def test_build_clip_video_bytes_returns_video_payload(tmp_path: Path) -> None:
     assert video_bytes == b"fake-mp4"
 
 
-def test_build_query_visualization_payload_returns_none_without_frame_context() -> None:
-    """Queries without frame context should not try to render visualization assets."""
+def test_build_query_visualization_payload_defaults_to_frame_0_without_frame_context() -> None:
+    """Queries without frame context should default to showing frame 0 of the sequence."""
     payload = build_query_visualization_payload(
         query_result={"results": [{"object_class": "car"}]},
         sequence_id="seq_a",
@@ -282,4 +283,5 @@ def test_build_query_visualization_payload_returns_none_without_frame_context() 
         sequence_loader_factory=FakeSequenceLoader,
     )
 
-    assert payload is None
+    assert payload is not None
+    assert payload["frame_ids"] == [0]

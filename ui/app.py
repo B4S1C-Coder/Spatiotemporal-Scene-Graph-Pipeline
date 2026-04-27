@@ -143,19 +143,20 @@ def build_default_query_agent() -> LLMQueryAgent:
 
 def extract_visual_targets(
     result_rows: list[dict[str, Any]],
-) -> dict[str, list[int]]:
+) -> dict[str, Any]:
     """
-    Extract candidate frame and track IDs from query result rows.
+    Extract candidate frame and track IDs (and sequence ID) from query result rows.
     """
     frame_ids: set[int] = set()
     track_ids: set[int] = set()
-    frame_keys = ("frame_id", "start_frame", "end_frame", "last_seen_frame", "first_seen_frame")
-    track_keys = ("track_id", "primary_track_id", "secondary_track_id")
+    sequence_ids: set[str] = set()
 
     for row in result_rows:
         for key, value in row.items():
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                key_lower = str(key).lower()
+            key_lower = str(key).lower()
+            if isinstance(value, str) and "sequence_id" in key_lower:
+                sequence_ids.add(value)
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
                 if "frame" in key_lower:
                     frame_ids.add(int(value))
                 elif "track" in key_lower:
@@ -165,6 +166,7 @@ def extract_visual_targets(
     return {
         "frame_ids": sorted(frame_ids),
         "track_ids": sorted(track_ids),
+        "sequence_id": list(sequence_ids)[0] if sequence_ids else None,
     }
 
 
@@ -205,10 +207,19 @@ def resolve_frame_path(
     """
     Resolve an on-disk frame path for the given sequence and frame ID.
     """
-    loader = sequence_loader_factory(sequence_id=sequence_id)
-    for candidate_path in loader.get_sequence_paths().frame_paths:
-        if int(candidate_path.stem) - 1 == frame_id:
-            return candidate_path
+    print(f"[DEBUG_VIS] Attempting to load sequence loader for '{sequence_id}' to resolve frame {frame_id}...")
+    try:
+        loader = sequence_loader_factory(sequence_id=sequence_id)
+        paths = loader.get_sequence_paths()
+        image_dir = getattr(paths, 'image_dir', 'mocked_dir')
+        print(f"[DEBUG_VIS] Successfully loaded sequence paths. Image dir: {image_dir}. Total frames: {len(paths.frame_paths)}")
+        for candidate_path in paths.frame_paths:
+            if int(candidate_path.stem) - 1 == frame_id:
+                print(f"[DEBUG_VIS] Found matching frame path: {candidate_path}")
+                return candidate_path
+        print(f"[DEBUG_VIS] Could not find frame ID {frame_id} among {len(paths.frame_paths)} candidate paths in {image_dir}")
+    except Exception as e:
+        print(f"[DEBUG_VIS] Exception resolving frame path for '{sequence_id}': {e}")
     return None
 
 
@@ -263,9 +274,11 @@ def build_preview_frames(
             sequence_loader_factory=sequence_loader_factory,
         )
         if frame_path is None:
+            print(f"[DEBUG_VIS] Skipping preview for frame {frame_id} because resolve_frame_path returned None.")
             continue
         frame_bgr = cv2.imread(str(frame_path))
         if frame_bgr is None:
+            print(f"[DEBUG_VIS] Skipping preview for frame {frame_id} because cv2.imread failed to load {frame_path}.")
             continue
         overlays = fetch_frame_boxes(neo4j_client, sequence_id, frame_id, track_ids=track_ids or None)
         rendered = render_bounding_boxes(frame_bgr, overlays)
@@ -384,12 +397,17 @@ def build_query_visualization_payload(
     """
     Build UI visualization assets from query results when enough context exists.
     """
-    if not sequence_id:
-        return None
-
     result_rows = list(query_result.get("results", []))
     targets = extract_visual_targets(result_rows)
+    print(f"[DEBUG_VIS] Extracted visual targets: {targets}")
     
+    active_sequence_id = targets.get("sequence_id") or sequence_id
+    print(f"[DEBUG_VIS] active_sequence_id resolved to: {active_sequence_id}")
+
+    if not active_sequence_id:
+        print("[DEBUG_VIS] active_sequence_id is None, returning None from payload builder")
+        return None
+
     if not targets["frame_ids"] and targets["track_ids"]:
         query = (
             "MATCH (o:Object {sequence_id: $seq_id})-[r:APPEARED_IN]->(f:Frame) "
@@ -397,7 +415,7 @@ def build_query_visualization_payload(
             "RETURN DISTINCT f.frame_id AS frame_id "
             "LIMIT 5"
         )
-        parameters = {"seq_id": sequence_id, "track_ids": targets["track_ids"]}
+        parameters = {"seq_id": active_sequence_id, "track_ids": targets["track_ids"]}
         resolved_rows = neo4j_client.execute_query(query, parameters)
         for row in resolved_rows:
             frame_id = row.get("frame_id")
@@ -405,28 +423,35 @@ def build_query_visualization_payload(
                 targets["frame_ids"].append(int(frame_id))
         targets["frame_ids"] = sorted(list(set(targets["frame_ids"])))
 
+    if not targets["frame_ids"] and not targets["track_ids"]:
+        print("[DEBUG_VIS] No frame or track targets found. Defaulting to frame 0 of the sequence.")
+        targets["frame_ids"] = [0]
+
     if not targets["frame_ids"]:
         return None
 
     preview_frames = build_preview_frames(
-        sequence_id=sequence_id,
+        sequence_id=active_sequence_id,
         frame_ids=targets["frame_ids"],
         track_ids=targets["track_ids"],
         neo4j_client=neo4j_client,
         sequence_loader_factory=sequence_loader_factory,
     )
+    print(f"[DEBUG_VIS] preview_frames generated {len(preview_frames)} frames.")
+    
     if not preview_frames:
+        print("[DEBUG_VIS] preview_frames is empty, returning None from payload builder")
         return None
 
     clip_gif = build_clip_gif_bytes(
-        sequence_id=sequence_id,
+        sequence_id=active_sequence_id,
         center_frame_id=preview_frames[0]["frame_id"],
         track_ids=targets["track_ids"],
         neo4j_client=neo4j_client,
         sequence_loader_factory=sequence_loader_factory,
     )
     clip_video = build_clip_video_bytes(
-        sequence_id=sequence_id,
+        sequence_id=active_sequence_id,
         center_frame_id=preview_frames[0]["frame_id"],
         track_ids=targets["track_ids"],
         neo4j_client=neo4j_client,
