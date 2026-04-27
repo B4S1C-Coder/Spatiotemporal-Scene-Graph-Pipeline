@@ -248,19 +248,20 @@ class PipelineRunner:
         retain_outputs: bool,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         loader = self.loader_factory(sequence_id=sequence_id, config=self.config)
+        real_sequence_id = getattr(loader, "sequence_id", sequence_id)
         processed_packets: list[dict[str, Any]] = []
         frame_count = 0
         start_time = time.monotonic()
         peak_rss_mb = self.current_rss_mb_fn()
 
         from ui.app import render_bounding_boxes
-        video_path = Path(f"data/precomputed_videos/{sequence_id}.webm")
+        video_path = Path(f"data/precomputed_videos/{real_sequence_id}.webm")
         video_path.parent.mkdir(parents=True, exist_ok=True)
         video_writer = None
 
         self.logger.info(
             "Starting sequence %s | frame_skip=%s | retain_outputs=%s | rss_cap_mb=%.1f",
-            sequence_id,
+            real_sequence_id,
             frame_skip if frame_skip is not None else "config",
             retain_outputs,
             self.max_process_rss_mb,
@@ -291,7 +292,7 @@ class PipelineRunner:
                 )
                 video_writer.write(rendered_frame)
 
-                peak_rss_mb = max(peak_rss_mb, self._maybe_log_and_enforce_memory(sequence_id, frame_count))
+                peak_rss_mb = max(peak_rss_mb, self._maybe_log_and_enforce_memory(real_sequence_id, frame_count))
 
                 del frame_result
                 del frame_packet
@@ -303,12 +304,12 @@ class PipelineRunner:
 
         self.last_postprocess_summary = None
         if post_process:
-            self.logger.info("Starting post-processing for sequence %s", sequence_id)
-            self.last_postprocess_summary = self.post_processor.run_sequence(sequence_id)
+            self.logger.info("Starting post-processing for sequence %s", real_sequence_id)
+            self.last_postprocess_summary = self.post_processor.run_sequence(real_sequence_id)
 
         duration_sec = time.monotonic() - start_time
         summary = {
-            "sequence_id": sequence_id,
+            "sequence_id": real_sequence_id,
             "frame_count": frame_count,
             "post_process_enabled": post_process,
             "post_process_summary": self.last_postprocess_summary,
@@ -418,6 +419,7 @@ def main() -> None:
     )
     parser = ArgumentParser(description="Run the spatiotemporal scene-graph pipeline.")
     parser.add_argument("--sequence", action="append", dest="sequences", help="Sequence ID to ingest. Repeatable.")
+    parser.add_argument("--video", action="append", dest="videos", help="Path to a custom video file (e.g. .mp4) to ingest. Repeatable.")
     parser.add_argument("--manifest", help="JSON manifest containing sequence_ids.", default=None)
     parser.add_argument("--frame-skip", type=int, default=None, help="Optional frame skip override.")
     parser.add_argument(
@@ -443,8 +445,11 @@ def main() -> None:
     sequence_ids = list(args.sequences or [])
     if args.manifest:
         sequence_ids.extend(SequenceLoader.list_available(args.manifest))
-    if not sequence_ids:
-        raise SystemExit("Provide at least one --sequence or a --manifest.")
+    
+    video_paths = list(args.videos or [])
+
+    if not sequence_ids and not video_paths:
+        raise SystemExit("Provide at least one --sequence, --manifest, or --video.")
 
     runtime_overrides: dict[str, Any] = {}
     if args.max_rss_mb is not None:
@@ -452,21 +457,38 @@ def main() -> None:
     if args.progress_every_frames is not None:
         runtime_overrides["progress_log_every_frames"] = int(args.progress_every_frames)
 
-    summary = run_pipeline_cli(
-        sequence_ids,
-        frame_skip=args.frame_skip,
-        post_process=args.post_process,
-        config_overrides={"runtime": runtime_overrides} if runtime_overrides else None,
-    )
+    config_overrides = {"runtime": runtime_overrides} if runtime_overrides else None
+
+    summaries = []
+    
+    if sequence_ids:
+        summaries.append(run_pipeline_cli(
+            sequence_ids,
+            frame_skip=args.frame_skip,
+            post_process=args.post_process,
+            config_overrides=config_overrides,
+        ))
+
+    if video_paths:
+        from pipeline.video_loader import VideoLoader
+        video_runner = PipelineRunner(config=config_overrides, loader_factory=VideoLoader)
+        summaries.append(run_pipeline_cli(
+            video_paths,
+            frame_skip=args.frame_skip,
+            post_process=args.post_process,
+            runner=video_runner,
+        ))
+
     if args.json:
-        print(json.dumps(summary, indent=2, sort_keys=True))
+        print(json.dumps(summaries, indent=2, sort_keys=True))
         return
 
     print("Pipeline execution complete.")
-    for sequence_id, frame_count in summary["frame_counts"].items():
-        print(f"- {sequence_id}: {frame_count} frames processed")
-    if summary["post_process_enabled"]:
-        print(f"Post-processing enabled. Last summary: {summary['last_postprocess_summary']}")
+    for summary in summaries:
+        for sequence_id, frame_count in summary["frame_counts"].items():
+            print(f"- {Path(sequence_id).stem}: {frame_count} frames processed")
+        if summary["post_process_enabled"]:
+            print(f"Post-processing enabled. Last summary: {summary['last_postprocess_summary']}")
 
 
 if __name__ == "__main__":
