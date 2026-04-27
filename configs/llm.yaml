@@ -32,8 +32,10 @@ prompt:
     - Event {event_type, frame_id, sequence_id, confidence, primary_track_id,
              secondary_track_id, metadata}
     - ObjectClass {name, class_group}
+    - Message {message_id, sender, text, timestamp, sequence_id}
 
     RELATIONSHIP TYPES:
+    - (Message)-[:MENTIONS]->(Object)
     - (Object)-[:IN_ZONE {frame_id, density_contribution}]->(Zone)
     - (Object)-[:APPEARED_IN {centroid, bbox_norm}]->(Frame)
     - (Object)-[:DETECTED_IN]->(Scene)

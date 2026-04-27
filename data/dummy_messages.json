@@ -1,0 +1,20 @@
+[
+  {
+    "message_id": "msg_001",
+    "sender": "Operator Alpha",
+    "text": "Keep an eye on that white car moving towards the intersection. Might be part of the convoy.",
+    "timestamp": 1672531200
+  },
+  {
+    "message_id": "msg_002",
+    "sender": "HQ",
+    "text": "Copy that. Also watch out for the pedestrian near the sidewalk.",
+    "timestamp": 1672531245
+  },
+  {
+    "message_id": "msg_003",
+    "sender": "Operator Bravo",
+    "text": "I see a truck approaching from the north.",
+    "timestamp": 1672531300
+  }
+]
