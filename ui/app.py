@@ -153,14 +153,14 @@ def extract_visual_targets(
     track_keys = ("track_id", "primary_track_id", "secondary_track_id")
 
     for row in result_rows:
-        for key in frame_keys:
-            value = row.get(key)
+        for key, value in row.items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
-                frame_ids.add(int(value))
-        for key in track_keys:
-            value = row.get(key)
-            if isinstance(value, (int, float)) and not isinstance(value, bool) and int(value) >= 0:
-                track_ids.add(int(value))
+                key_lower = str(key).lower()
+                if "frame" in key_lower:
+                    frame_ids.add(int(value))
+                elif "track" in key_lower:
+                    if int(value) >= 0:
+                        track_ids.add(int(value))
 
     return {
         "frame_ids": sorted(frame_ids),
@@ -392,9 +392,9 @@ def build_query_visualization_payload(
     
     if not targets["frame_ids"] and targets["track_ids"]:
         query = (
-            "MATCH (o:Object {sequence_id: $seq_id}) "
+            "MATCH (o:Object {sequence_id: $seq_id})-[r:APPEARED_IN]->(f:Frame) "
             "WHERE o.track_id IN $track_ids "
-            "RETURN DISTINCT o.first_seen_frame AS frame_id "
+            "RETURN DISTINCT f.frame_id AS frame_id "
             "LIMIT 5"
         )
         parameters = {"seq_id": sequence_id, "track_ids": targets["track_ids"]}
@@ -469,7 +469,8 @@ def main() -> None:
 
     left_column, right_column = st.columns([2, 3])
     with left_column:
-        sequence_id = st.text_input("Sequence ID", placeholder="uav0000009_04358_v")
+        sequence_id = st.text_input("Sequence ID", placeholder="uav0000086_00000_v", value="uav0000086_00000_v")
+        show_frames = st.checkbox("Show frame visualization", value=True)
         natural_language_query = st.text_area(
             "Natural Language Query",
             placeholder="Which vehicles were stationary for more than 60 frames?",
@@ -511,11 +512,13 @@ def main() -> None:
             else:
                 st.info("No result rows returned.")
 
-            visualization_payload = build_query_visualization_payload(
-                query_result=query_result,
-                sequence_id=sequence_id or None,
-                neo4j_client=query_agent.neo4j_client,
-            )
+            visualization_payload = None
+            if show_frames:
+                visualization_payload = build_query_visualization_payload(
+                    query_result=query_result,
+                    sequence_id=sequence_id or None,
+                    neo4j_client=query_agent.neo4j_client,
+                )
             if visualization_payload is not None:
                 st.subheader("Frame Visualization")
                 for preview in visualization_payload["preview_frames"]:
@@ -538,6 +541,8 @@ def main() -> None:
                             caption="GIF fallback clip centered on the first matched frame.",
                             use_container_width=True,
                         )
+            elif show_frames:
+                st.info("Visualization skipped: No valid visual targets (e.g. track IDs or frame IDs) were found in the query results, or the sequence images could not be loaded from disk.")
 
 
 if __name__ == "__main__":  # pragma: no cover - interactive runtime path
