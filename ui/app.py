@@ -226,20 +226,48 @@ def resolve_frame_path(
 def render_bounding_boxes(
     frame_bgr: np.ndarray,
     overlays: list[dict[str, Any]],
+    letterbox_img_size: int = 1280,
 ) -> np.ndarray:
     """
     Render graph-derived bounding boxes onto a frame.
+    Corrects for scaling distortion introduced during ingestion (boxes were computed
+    on letterboxed frames but normalized by original frame dimensions).
     """
     rendered = frame_bgr.copy()
     height, width = rendered.shape[:2]
+    
+    scale = min(letterbox_img_size / width, letterbox_img_size / height)
+    resized_width = max(1, int(round(width * scale)))
+    resized_height = max(1, int(round(height * scale)))
+    pad_w = (letterbox_img_size - resized_width) / 2.0
+    pad_h = (letterbox_img_size - resized_height) / 2.0
+    left = np.floor(pad_w)
+    top = np.floor(pad_h)
+
     for overlay in overlays:
         bbox_norm = overlay.get("bbox_norm")
         if not isinstance(bbox_norm, list) or len(bbox_norm) != 4:
             continue
-        x1 = max(0, min(width - 1, int(round(float(bbox_norm[0]) * width))))
-        y1 = max(0, min(height - 1, int(round(float(bbox_norm[1]) * height))))
-        x2 = max(0, min(width - 1, int(round(float(bbox_norm[2]) * width))))
-        y2 = max(0, min(height - 1, int(round(float(bbox_norm[3]) * height))))
+            
+        # 1. Reverse MotionAgent's incorrect normalization (which used original width/height)
+        # to get coordinates in the letterboxed space.
+        x1_letterbox = float(bbox_norm[0]) * width
+        y1_letterbox = float(bbox_norm[1]) * height
+        x2_letterbox = float(bbox_norm[2]) * width
+        y2_letterbox = float(bbox_norm[3]) * height
+        
+        # 2. Reverse letterboxing to get coordinates in the original image space.
+        x1_orig = (x1_letterbox - left) / scale
+        y1_orig = (y1_letterbox - top) / scale
+        x2_orig = (x2_letterbox - left) / scale
+        y2_orig = (y2_letterbox - top) / scale
+
+        # 3. Clamp to frame boundaries
+        x1 = max(0, min(width - 1, int(round(x1_orig))))
+        y1 = max(0, min(height - 1, int(round(y1_orig))))
+        x2 = max(0, min(width - 1, int(round(x2_orig))))
+        y2 = max(0, min(height - 1, int(round(y2_orig))))
+
         label = f"{overlay.get('class_name', 'object')} #{overlay.get('track_id', '?')}"
         cv2.rectangle(rendered, (x1, y1), (x2, y2), (0, 220, 0), 2)
         cv2.putText(
