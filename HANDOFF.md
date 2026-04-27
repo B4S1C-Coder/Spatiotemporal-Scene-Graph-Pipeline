@@ -45,7 +45,7 @@ Key helper functions:
 
 Current visualization behavior:
 
-- only activates when query results contain frame-like fields
+- activates when query results contain frame-like fields, or automatically resolves track-only results to their first_seen_frame
 - uses `sequence_id` from the UI input
 - fetches `bbox_norm` from `APPEARED_IN`
 - renders up to a few preview frames
@@ -207,11 +207,9 @@ If continuing from here, the highest-value next steps are:
 2. Add direct video export support
    - GIF is implemented now
    - MP4 export would be a stronger demo artifact
-3. Make visualization work when results only contain `track_id`
-   - by resolving those tracks to relevant frames automatically
-4. Add a config-driven class alias / synonym layer
+3. Add a config-driven class alias / synonym layer
    - instead of current targeted person-only heuristics
-5. Continue Phase 14 graph work
+4. Continue Phase 14 graph work
    - raw spatial edges
    - lifecycle fields
    - density history persistence

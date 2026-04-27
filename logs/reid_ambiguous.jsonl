@@ -9,3 +9,14 @@
 {"sequence_id": "uav0000117_02622_v", "track_a_id": 73, "track_b_id": 93, "confidence": 0.7101193516766802}
 {"sequence_id": "uav0000117_02622_v", "track_a_id": 93, "track_b_id": 98, "confidence": 0.9486874193244215}
 {"sequence_id": "uav0000117_02622_v", "track_a_id": 111, "track_b_id": 128, "confidence": 0.7870197996318011}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 11, "track_b_id": 68, "confidence": 0.7353707719939733}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 11, "track_b_id": 83, "confidence": 0.7250741353378893}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 12, "track_b_id": 31, "confidence": 0.7788214733963756}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 12, "track_b_id": 49, "confidence": 0.7463513433607096}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 13, "track_b_id": 68, "confidence": 0.7315499471761262}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 27, "track_b_id": 37, "confidence": 0.8851105385063796}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 30, "track_b_id": 49, "confidence": 0.7748779412533364}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 31, "track_b_id": 49, "confidence": 0.7861244078984799}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 73, "track_b_id": 93, "confidence": 0.7101193516766802}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 93, "track_b_id": 98, "confidence": 0.9486874193244215}
+{"sequence_id": "uav0000117_02622_v", "track_a_id": 111, "track_b_id": 128, "confidence": 0.7870197996318011}

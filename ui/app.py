@@ -389,6 +389,22 @@ def build_query_visualization_payload(
 
     result_rows = list(query_result.get("results", []))
     targets = extract_visual_targets(result_rows)
+    
+    if not targets["frame_ids"] and targets["track_ids"]:
+        query = (
+            "MATCH (o:Object {sequence_id: $seq_id}) "
+            "WHERE o.track_id IN $track_ids "
+            "RETURN DISTINCT o.first_seen_frame AS frame_id "
+            "LIMIT 5"
+        )
+        parameters = {"seq_id": sequence_id, "track_ids": targets["track_ids"]}
+        resolved_rows = neo4j_client.execute_query(query, parameters)
+        for row in resolved_rows:
+            frame_id = row.get("frame_id")
+            if isinstance(frame_id, (int, float)) and not isinstance(frame_id, bool):
+                targets["frame_ids"].append(int(frame_id))
+        targets["frame_ids"] = sorted(list(set(targets["frame_ids"])))
+
     if not targets["frame_ids"]:
         return None
 
