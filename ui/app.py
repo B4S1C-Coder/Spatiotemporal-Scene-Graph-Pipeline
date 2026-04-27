@@ -327,7 +327,7 @@ def build_clip_gif_bytes(
     track_ids: list[int],
     neo4j_client: Neo4jClientProtocol,
     sequence_loader_factory: Callable[..., Any] = SequenceLoader,
-    radius: int = 2,
+    radius: int = 15,
 ) -> bytes | None:
     """
     Build a short annotated GIF clip around a frame of interest.
@@ -357,7 +357,7 @@ def build_clip_gif_bytes(
         format="GIF",
         save_all=True,
         append_images=rendered_frames[1:],
-        duration=250,
+        duration=100,
         loop=0,
     )
     return buffer.getvalue()
@@ -369,8 +369,8 @@ def build_clip_video_bytes(
     track_ids: list[int],
     neo4j_client: Neo4jClientProtocol,
     sequence_loader_factory: Callable[..., Any] = SequenceLoader,
-    radius: int = 2,
-    fps: int = 4,
+    radius: int = 45,
+    fps: int = 30,
     writer_factory: Callable[..., Any] = cv2.VideoWriter,
     fourcc_factory: Callable[..., int] = cv2.VideoWriter_fourcc,
 ) -> bytes | None:
