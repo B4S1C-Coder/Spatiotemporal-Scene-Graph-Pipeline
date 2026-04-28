@@ -20,6 +20,8 @@ schema:
       class_group: VulnerableRoadUser
     - name: people
       class_group: VulnerableRoadUser
+    - name: person
+      class_group: VulnerableRoadUser
     - name: bicycle
       class_group: VulnerableRoadUser
     - name: car
@@ -36,3 +38,9 @@ schema:
       class_group: MotorVehicle
     - name: motor
       class_group: VulnerableRoadUser
+    - name: motorcycle
+      class_group: VulnerableRoadUser
+
+proximity:
+  near_threshold: 0.08
+  same_zone_only: true

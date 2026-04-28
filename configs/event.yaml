@@ -8,6 +8,7 @@ loiter:
   classes:
     - pedestrian
     - people
+    - person
 
 convoy:
   distance_min: 0.03
@@ -24,6 +25,7 @@ jaywalking:
   classes:
     - pedestrian
     - people
+    - person
 
 zones:
   default_vehicle_ratio: 0.0

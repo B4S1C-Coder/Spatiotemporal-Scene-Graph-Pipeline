@@ -13,8 +13,8 @@ from typing import Any
 from configs.loader import EVENT_CONFIG_PATH, load_yaml_config
 
 
-PEDESTRIAN_CLASSES = {"pedestrian", "people", "bicycle", "motor", "tricycle"}
-VEHICLE_CLASSES = {"car", "van", "truck", "bus", "awning-tricycle"}
+PEDESTRIAN_CLASSES = {"pedestrian", "people", "bicycle", "motor", "tricycle", "person"}
+VEHICLE_CLASSES = {"car", "van", "truck", "bus", "awning-tricycle", "motorcycle"}
 
 
 def load_event_config(

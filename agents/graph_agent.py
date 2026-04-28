@@ -37,6 +37,9 @@ class GraphAgent:
         batch_config = self.config["batch"]
         self.frame_batch_size = int(batch_config["frame_batch_size"])
         self.retry_buffer_path = Path(batch_config["retry_buffer_path"])
+        proximity_config = self.config.get("proximity", {})
+        self.near_threshold = float(proximity_config.get("near_threshold", 0.08))
+        self.same_zone_only = bool(proximity_config.get("same_zone_only", True))
         self.pending_statements: list[GraphStatement] = []
         self.pending_frame_count = 0
         self.seen_scenes: set[str] = set()
@@ -73,6 +76,11 @@ class GraphAgent:
 
         for object_state in object_states:
             self.pending_statements.extend(self._build_object_statements(object_state, sequence_id))
+
+        # Build NEAR proximity edges for this frame
+        self.pending_statements.extend(
+            self._build_proximity_statements(object_states, sequence_id, frame_id)
+        )
 
         if zone_stats:
             self.pending_statements.extend(self._build_zone_statements(zone_stats, sequence_id, frame_id))
@@ -212,9 +220,8 @@ class GraphAgent:
                 query=(
                     "MATCH (o:Object {track_id: $track_id, sequence_id: $seq_id}) "
                     "MATCH (z:Zone {zone_id: $zone_id, sequence_id: $seq_id}) "
-                    "MERGE (o)-[r:IN_ZONE]->(z) "
-                    "SET r.frame_id = $frame_id, "
-                    "r.density_contribution = 1"
+                    "MERGE (o)-[r:IN_ZONE {frame_id: $frame_id}]->(z) "
+                    "SET r.density_contribution = 1"
                 ),
                 parameters=track_parameters,
             ),
@@ -249,6 +256,64 @@ class GraphAgent:
                 },
             ),
         ]
+
+    def _build_proximity_statements(
+        self,
+        object_states: list[dict[str, Any]],
+        sequence_id: str,
+        frame_id: int,
+    ) -> list[GraphStatement]:
+        """Build NEAR relationships between spatially close objects in this frame."""
+        if len(object_states) < 2:
+            return []
+
+        statements: list[GraphStatement] = []
+
+        # Group objects by zone to reduce pairwise comparisons
+        if self.same_zone_only:
+            zone_groups: dict[str, list[dict[str, Any]]] = {}
+            for obj in object_states:
+                zone_groups.setdefault(obj["zone_id"], []).append(obj)
+            groups = list(zone_groups.values())
+        else:
+            groups = [object_states]
+
+        for group in groups:
+            for i, obj_a in enumerate(group):
+                for obj_b in group[i + 1:]:
+                    cx_a, cy_a = obj_a["centroid_norm"]
+                    cx_b, cy_b = obj_b["centroid_norm"]
+                    dist = ((cx_a - cx_b) ** 2 + (cy_a - cy_b) ** 2) ** 0.5
+                    if dist >= self.near_threshold:
+                        continue
+
+                    tid_a = int(obj_a["track_id"])
+                    tid_b = int(obj_b["track_id"])
+                    low, high = (tid_a, tid_b) if tid_a < tid_b else (tid_b, tid_a)
+                    both_moving = (
+                        obj_a.get("speed_px_per_frame", 0) > 0.001
+                        and obj_b.get("speed_px_per_frame", 0) > 0.001
+                    )
+                    statements.append(
+                        GraphStatement(
+                            query=(
+                                "MATCH (a:Object {track_id: $tid_low, sequence_id: $seq_id}) "
+                                "MATCH (b:Object {track_id: $tid_high, sequence_id: $seq_id}) "
+                                "MERGE (a)-[r:NEAR]->(b) "
+                                "SET r.distance = $distance, r.frame_id = $frame_id, "
+                                "r.both_moving = $both_moving"
+                            ),
+                            parameters={
+                                "tid_low": low,
+                                "tid_high": high,
+                                "seq_id": sequence_id,
+                                "distance": round(dist, 6),
+                                "frame_id": frame_id,
+                                "both_moving": both_moving,
+                            },
+                        )
+                    )
+        return statements
 
     @staticmethod
     def _build_zone_statements(

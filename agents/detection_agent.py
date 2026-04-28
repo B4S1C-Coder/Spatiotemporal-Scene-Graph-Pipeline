@@ -11,8 +11,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from configs.loader import DETECTION_CONFIG_PATH, load_yaml_config
+import logging
 import numpy as np
+import torch
 from ultralytics import YOLO
+
+logger = logging.getLogger(__name__)
 
 
 def load_detection_config(
@@ -109,6 +113,27 @@ class DetectionAgent:
         self.iou_threshold = float(inference_config["iou_threshold"])
         self.img_size = int(inference_config["img_size"])
 
+        # Resolve compute device: prefer GPU, fall back to CPU with explicit warning
+        self.device = self._resolve_device()
+
+    @staticmethod
+    def _resolve_device() -> str:
+        """Detect the best available compute device."""
+        if torch.cuda.is_available():
+            device = "cuda"
+            gpu_name = torch.cuda.get_device_name(0)
+            logger.info(f"\033[92m[GPU] Using CUDA device: {gpu_name}\033[0m")
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            device = "mps"
+            logger.info("\033[92m[GPU] Using Apple MPS device\033[0m")
+        else:
+            device = "cpu"
+            logger.warning(
+                "\033[93m[CPU] No GPU detected — running YOLO inference on CPU. "
+                "This will be significantly slower.\033[0m"
+            )
+        return device
+
     def infer_frame(self, frame_packet: dict[str, Any]) -> Any:
         """
         Run raw YOLO inference for a single frame packet.
@@ -128,6 +153,7 @@ class DetectionAgent:
             conf=self.conf_threshold,
             iou=self.iou_threshold,
             imgsz=self.img_size,
+            device=self.device,
             verbose=False,
         )
 
