@@ -52,11 +52,15 @@ class ReasoningAgent:
             return "None yet."
         parts = []
         for i, step in enumerate(memory):
-            line = f"[{i+1}] {step.get('action','')}: {step.get('action_input','')}"
-            if step.get('action') == 'QUERY':
+            action = step.get('action', '')
+            line = f"[{i+1}] {action}: {step.get('action_input','')}"
+            if action == 'QUERY':
                 results = step.get('results', [])
                 top = results[:5]
                 line += f" -> {len(results)} rows: {json.dumps(top, separators=(',',':'))}"
+            elif action == 'SUMMARIZE':
+                # The summary replaces raw data in the model's memory
+                line = f"[{i+1}] SUMMARY: {step.get('action_input','')}"
             parts.append(line)
         return "\n".join(parts)
 
@@ -108,6 +112,68 @@ class ReasoningAgent:
             "action_input": "I encountered an error while reasoning. Please try a simpler question."
         }
 
+    @staticmethod
+    def _digest_results(results: list[dict[str, Any]]) -> str:
+        """Deterministically extract a compact structured digest from query results.
+
+        This replaces LLM-based summarization — it's fast, token-safe, and
+        preserves all key details (IDs, counts, classes, distances).
+        """
+        if not results:
+            return "0 rows returned."
+
+        total = len(results)
+        # Collect all column names
+        columns = sorted({k for row in results for k in row})
+
+        # Extract key entity values
+        key_extractors = {
+            "track_ids": ("track_id", "o.track_id", "tid", "primary_track_id"),
+            "frame_ids": ("frame_id", "f.frame_id", "fid"),
+            "classes": ("class", "o.class", "cls", "class_name"),
+            "zones": ("zone_id", "z.zone_id", "zone"),
+            "event_types": ("event_type", "e.event_type", "evt"),
+        }
+        extracted: dict[str, set] = {k: set() for k in key_extractors}
+        for row in results:
+            for label, aliases in key_extractors.items():
+                for alias in aliases:
+                    if alias in row and row[alias] is not None:
+                        extracted[label].add(str(row[alias]))
+
+        # Compute numeric stats
+        numeric_stats: dict[str, dict[str, float]] = {}
+        for col in columns:
+            vals = []
+            for row in results:
+                v = row.get(col)
+                if isinstance(v, (int, float)):
+                    vals.append(v)
+            if vals:
+                numeric_stats[col] = {
+                    "min": round(min(vals), 4),
+                    "max": round(max(vals), 4),
+                    "avg": round(sum(vals) / len(vals), 4),
+                }
+
+        # Build compact digest string
+        lines = [f"Total rows: {total}", f"Columns: {', '.join(columns)}"]
+        for label, values in extracted.items():
+            if values:
+                display = sorted(values)
+                if len(display) > 10:
+                    display = display[:10] + [f"...+{len(display)-10} more"]
+                lines.append(f"{label}: {', '.join(display)}")
+        for col, stats in numeric_stats.items():
+            lines.append(f"{col}: min={stats['min']}, max={stats['max']}, avg={stats['avg']}")
+
+        # Include first 3 sample rows (compact)
+        lines.append(f"Sample rows ({min(3, total)}/{total}):")
+        for row in results[:3]:
+            lines.append(f"  {json.dumps(row, separators=(',',':'))}")
+
+        return "\n".join(lines)
+
     def execute_step(self, decision: Dict[str, Any], sequence_id: str | None = None) -> Dict[str, Any]:
         """Execute the chosen action and return the result state to be appended to memory."""
         action = decision.get("action")
@@ -121,14 +187,28 @@ class ReasoningAgent:
         
         if action == "QUERY":
             logger.info(f"Executing QUERY: {action_input}")
-            query_result = self.query_agent.query(action_input, sequence_id=sequence_id)
-            result_state["cypher"] = query_result.get("cypher")
-            result_state["results"] = query_result.get("results", [])
-            # We don't need the query_agent's natural language interpretation here
+            try:
+                cypher = self.query_agent.generate_cypher(
+                    natural_language_query=action_input,
+                    sequence_id=sequence_id,
+                )
+                is_valid, err = self.query_agent.validate_cypher(cypher)
+                if is_valid:
+                    params = {"seq_id": sequence_id} if sequence_id else {}
+                    results = self.query_agent.execute_cypher(cypher, parameters=params)
+                    result_state["cypher"] = cypher
+                    result_state["results"] = results
+                else:
+                    result_state["cypher"] = cypher
+                    result_state["results"] = []
+                    logger.warning(f"Invalid Cypher: {err}")
+            except Exception as e:
+                logger.error(f"Query execution failed: {e}")
+                result_state["cypher"] = None
+                result_state["results"] = []
             
         elif action == "INFER":
             logger.info(f"Executing INFER: {action_input}")
-            # The inference is essentially the action_input, the model is just thinking out loud
             result_state["inference"] = "Noted."
             
         elif action == "FINAL_ANSWER":
@@ -148,15 +228,25 @@ class ReasoningAgent:
             decision = self.decide_next_step(goal, memory)
             result_state = self.execute_step(decision, sequence_id)
             memory.append(result_state)
-            
             yield result_state
-            
+
+            # After a QUERY with results, inject a deterministic SUMMARIZE step
+            if result_state.get("action") == "QUERY" and result_state.get("results"):
+                digest_text = self._digest_results(result_state["results"])
+                summarize_state = {
+                    "thought": f"Digesting {len(result_state['results'])} result rows.",
+                    "action": "SUMMARIZE",
+                    "action_input": digest_text,
+                }
+                memory.append(summarize_state)
+                yield summarize_state
+
             if result_state.get("action") == "FINAL_ANSWER":
                 break
         else:
-            # Reached max steps
             yield {
                 "thought": "I have reached the maximum number of steps allowed.",
                 "action": "FINAL_ANSWER",
                 "action_input": "I was unable to fully complete the goal within the step limit. Please try breaking your query down."
             }
+

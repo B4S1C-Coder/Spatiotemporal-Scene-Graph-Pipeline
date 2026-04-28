@@ -63,6 +63,8 @@ def main():
                                 
                     elif action == "INFER":
                         st.markdown(f"**🤔 Inference:** {step.get('action_input', '')}")
+                    elif action == "SUMMARIZE":
+                        st.info(f"**📋 Summarize:** {step.get('action_input', '')}")
                     elif action == "FINAL_ANSWER":
                         st.success(f"**✅ Final Answer:** {step.get('action_input', '')}")
 
@@ -116,9 +118,10 @@ def main():
                                 
                     elif action == "INFER":
                         st.markdown(f"**🤔 Inference:** {step.get('action_input', '')}")
+                    elif action == "SUMMARIZE":
+                        st.info(f"**📋 Summarize:** {step.get('action_input', '')}")
                     elif action == "FINAL_ANSWER":
                         st.success(f"**✅ Final Answer:** {step.get('action_input', '')}")
-            
             # Save assistant response to history
             st.session_state.chat_history.append({
                 "role": "assistant",

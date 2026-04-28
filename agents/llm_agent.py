@@ -154,10 +154,19 @@ class LLMQueryAgent:
 
         prompt_config = self.config["prompt"]
         model = self.config["llm"]["model"]
+
+        # Truncate results to avoid exceeding context window
+        max_interpret_rows = 10
+        truncated = results[:max_interpret_rows]
+        total = len(results)
+        results_text = json.dumps(truncated, sort_keys=True, separators=(",", ":"))
+        if total > max_interpret_rows:
+            results_text += f"\n... ({total - max_interpret_rows} more rows omitted)"
+
         user_prompt = (
             f"Original question:\n{natural_language_query}\n\n"
             f"Cypher query:\n{cypher}\n\n"
-            f"Results:\n{json.dumps(results, indent=2, sort_keys=True)}"
+            f"Results ({total} total):\n{results_text}"
         )
         return self.llm_client.generate(
             system_prompt=prompt_config["interpretation_preamble"].strip(),
