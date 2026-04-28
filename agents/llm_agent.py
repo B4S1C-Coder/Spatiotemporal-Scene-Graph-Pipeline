@@ -34,7 +34,7 @@ class LLMClientProtocol(Protocol):
 
 
 class OpenAILLMClient:
-    """Small adapter around the OpenAI Responses API."""
+    """Small adapter around the OpenAI Chat Completions API."""
 
     def __init__(
         self,
@@ -51,12 +51,14 @@ class OpenAILLMClient:
         )
 
     def generate(self, *, system_prompt: str, user_prompt: str, model: str) -> str:
-        response = self.client.responses.create(
+        response = self.client.chat.completions.create(
             model=model,
-            instructions=system_prompt,
-            input=user_prompt,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
         )
-        return response.output_text.strip()
+        return response.choices[0].message.content.strip()
 
 
 def load_llm_config(

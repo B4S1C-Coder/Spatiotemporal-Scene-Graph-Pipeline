@@ -1,11 +1,11 @@
 llm:
-  model: qwen-3.5_4B_Q4_K_M
+  model: poolside/laguna-xs.2:free
   max_retries: 3
   default_limit: 50
   no_data_response: No data found in the graph for this query.
   invalid_query_response: Could not generate a valid query. Please rephrase.
   connection:
-    base_url: http://localhost:8080/v1
+    base_url: https://openrouter.ai/api/v1
     api_key: null
     api_key_env: OPENAI_API_KEY
 logging:
