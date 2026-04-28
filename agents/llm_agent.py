@@ -47,6 +47,7 @@ class OpenAILLMClient:
         self.client = client or openai_factory(
             base_url=base_url,
             api_key=api_key,
+            timeout=300.0,
         )
 
     def generate(self, *, system_prompt: str, user_prompt: str, model: str) -> str:
